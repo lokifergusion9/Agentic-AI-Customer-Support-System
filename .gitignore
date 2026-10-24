@@ -1,0 +1,27 @@
+# Local environment (real values and secrets). .env.example stays committed.
+.env
+.env.*
+!.env.example
+
+# Virtualenv created by uv sync
+.venv/
+
+# Python bytecode and build output
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Tool caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Editors and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

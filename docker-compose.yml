@@ -1,0 +1,71 @@
+# Local infrastructure: PostgreSQL and the mock external services.
+#
+#   docker compose up -d                    # PostgreSQL only
+#   docker compose --profile mocks up -d    # PostgreSQL + mock services
+#
+# The mock services sit behind the "mocks" profile until their apps exist
+# (W1.8 payments, W1.9 shipping, W1.10 ticketing). Every value has a local-only default and
+# can be overridden from .env (P0.4).
+
+name: customer-support-resolution-agent
+
+x-mock-service: &mock-service
+  image: ghcr.io/astral-sh/uv:0.12.5-python3.13-trixie-slim
+  profiles: ["mocks"]
+  working_dir: /workspace
+  volumes:
+    - .:/workspace
+    - uv-cache:/root/.cache/uv
+  environment:
+    # Keep the container's virtualenv out of the bind-mounted host .venv.
+    UV_PROJECT_ENVIRONMENT: /opt/venv
+    UV_LINK_MODE: copy
+  restart: unless-stopped
+
+services:
+  postgres:
+    # Plain PostgreSQL 17 with the pgvector extension available but not enabled.
+    # Whether to run CREATE EXTENSION vector is open question Q3.
+    image: pgvector/pgvector:0.8.0-pg17
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-support}
+      POSTGRES_USER: ${POSTGRES_USER:-support}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-support}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  mock-payments:
+    <<: *mock-service
+    command: >
+      uv run --frozen --no-dev
+      uvicorn mock_services.payments.main:app --host 0.0.0.0 --port 8001
+    ports:
+      - "${MOCK_PAYMENTS_PORT:-8001}:8001"
+
+  mock-shipping:
+    <<: *mock-service
+    command: >
+      uv run --frozen --no-dev
+      uvicorn mock_services.shipping.main:app --host 0.0.0.0 --port 8002
+    ports:
+      - "${MOCK_SHIPPING_PORT:-8002}:8002"
+
+  mock-ticketing:
+    <<: *mock-service
+    command: >
+      uv run --frozen --no-dev
+      uvicorn mock_services.ticketing.main:app --host 0.0.0.0 --port 8003
+    ports:
+      - "${MOCK_TICKETING_PORT:-8003}:8003"
+
+volumes:
+  pgdata:
+  uv-cache:
