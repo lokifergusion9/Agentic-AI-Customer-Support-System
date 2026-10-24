@@ -53,7 +53,7 @@ The reference interaction the system must handle end to end (PDF §1):
 
 ## Phase 0 — Repository setup
 
-- [ ] **P0.1 — Create the repository skeleton** (§17). Use the exact layout:
+- [x] **P0.1 — Create the repository skeleton** (§17). Use the exact layout:
   ```text
   customer-support-resolution-agent/
   ├── app/{main.py, api/, auth/, schemas/, agents/, workflows/, tools/, services/, policies/, db/}
@@ -68,10 +68,10 @@ The reference interaction the system must handle end to end (PDF §1):
   ├── pyproject.toml
   └── README.md
   ```
-- [ ] **P0.2 — Project config** (§17). Set up `pyproject.toml` with dependencies **pinned in a lockfile**.
-- [ ] **P0.3 — Local infra** (§5, §17). Add `docker-compose.yml` with PostgreSQL (plus the pgvector extension if that option is chosen) and the mock services.
-- [ ] **P0.4 — Environment template** (§17). `.env.example` lists every required variable: DB URL, model configuration, embedding configuration, mock service URLs, and approval expiry. No real secrets.
-- [ ] **P0.5 — README stub** (§3, §19). Write the scope and boundaries section above into the README before writing any code.
+- [x] **P0.2 — Project config** (§17). Set up `pyproject.toml` with dependencies **pinned in a lockfile**.
+- [x] **P0.3 — Local infra** (§5, §17). Add `docker-compose.yml` with PostgreSQL (plus the pgvector extension if that option is chosen) and the mock services.
+- [x] **P0.4 — Environment template** (§17). `.env.example` lists every required variable: DB URL, model configuration, embedding configuration, mock service URLs, and approval expiry. No real secrets.
+- [x] **P0.5 — README stub** (§3, §19). Write the scope and boundaries section above into the README before writing any code.
 
 ---
 
@@ -132,7 +132,7 @@ The reference interaction the system must handle end to end (PDF §1):
   - [ ] Payment status and refund status can be queried by order, by key, or by provider reference.
   - [ ] Fault injection: errors, delayed results, and *"accept the refund but time out before responding"*.
 - [ ] **W1.9 — Mock shipping API** (§5). Shipment status for order-status complaints, with error and delay injection.
-- [ ] **W1.10 — Mock ticketing API** (§5). Ticket status and notes updates, with failure injection so the *"refund succeeds, ticket update fails"* case can be tested. See open question Q1 for where this lives.
+- [ ] **W1.10 — Mock ticketing API** (§5). Ticket status and notes updates, with failure injection so the *"refund succeeds, ticket update fails"* case can be tested. Lives in `mock_services/ticketing/` (Q1 decided).
 - [ ] **W1.11 — Mock order API** (§16). Week 1 lists *"mock order, shipping, and payment APIs"*. Orders are read through a service layer over the seeded tables, or a thin mock over them.
 
 ### Deterministic business logic
@@ -441,7 +441,7 @@ Confirm before sharing the project. Tasks that satisfy each item are in brackets
 
 | # | Question | Why it matters |
 |---|---|---|
-| Q1 | Where does the **mock ticketing API** live? §5 lists it, but the §17 tree only has `mock_services/payments/` and `mock_services/shipping/`. Options: add `mock_services/ticketing/`, or treat the `tickets` table plus `update_ticket` as the ticketing system and inject faults there. | Needed for the *"refund succeeds, ticket update fails"* failure test. |
+| Q1 | Where does the **mock ticketing API** live? §5 lists it, but the §17 tree only has `mock_services/payments/` and `mock_services/shipping/`. Options: add `mock_services/ticketing/`, or treat the `tickets` table plus `update_ticket` as the ticketing system and inject faults there. | Needed for the *"refund succeeds, ticket update fails"* failure test. **Decided (2026-10-24): Option A, `mock_services/ticketing/`** (external helpdesk mock, port 8003). The app's `tickets` table stays the local record, and its status changes only after the ticketing API confirms. |
 | Q2 | There is no `payments` table in the §7 schema. Confirm that payment and refund state come only from the mock payment API. | Affects `get_payment_status` and the refundable-balance calculation. |
 | Q3 | Embeddings: pgvector inside PostgreSQL (optional per §5), or a simpler first pass? Which embedding model? | Affects W2.1, docker-compose, and `.env.example`. |
 | Q4 | Which LLM provider and model, and what per-run step and cost limits? | Affects W2.9–W2.15 and the operational metrics. |

@@ -7,15 +7,18 @@ Stack: **Python · LangGraph · FastAPI · PostgreSQL** (pgvector optional). All
 
 Diagrams in this file:
 
-1. [System architecture](#1-system-architecture)
-2. [Resolution workflow (LangGraph)](#2-resolution-workflow-langgraph)
-3. [Human approval: pause / resume](#3-human-approval--pause--resume)
-4. [Refund execution, verification and reconciliation](#4-refund-execution-verification-and-reconciliation)
-5. [Failure recovery](#5-failure-recovery)
-6. [Database schema](#6-database-schema)
-7. [API endpoints → components](#7-api-endpoints--components)
-8. [LLM vs ordinary code boundary](#8-llm-vs-ordinary-code-boundary)
-9. [Components → repository structure](#9-components--repository-structure)
+- [High-Level Architecture — Customer Support Resolution Agent](#high-level-architecture--customer-support-resolution-agent)
+  - [1. System architecture](#1-system-architecture)
+  - [2. Resolution workflow (LangGraph)](#2-resolution-workflow-langgraph)
+  - [3. Human approval — pause / resume](#3-human-approval--pause--resume)
+  - [4. Refund execution, verification and reconciliation](#4-refund-execution-verification-and-reconciliation)
+  - [5. Failure recovery](#5-failure-recovery)
+    - [5a. Worker crash / application restart](#5a-worker-crash--application-restart)
+    - [5b. Failure → expected behavior (PDF §14)](#5b-failure--expected-behavior-pdf-14)
+  - [6. Database schema](#6-database-schema)
+  - [7. API endpoints → components](#7-api-endpoints--components)
+  - [8. LLM vs ordinary code boundary](#8-llm-vs-ordinary-code-boundary)
+  - [9. Components → repository structure](#9-components--repository-structure)
 
 ---
 
@@ -499,7 +502,8 @@ customer-support-resolution-agent/
 │   └── db/                # models, sessions, checkpointer config
 ├── mock_services/
 │   ├── payments/          # refund API with idempotency contract + fault injection
-│   └── shipping/          # shipment status + fault injection
+│   ├── shipping/          # shipment status + fault injection
+│   └── ticketing/         # ticket status + notes updates + fault injection (Q1)
 ├── migrations/
 ├── scripts/
 │   ├── seed_data.py
@@ -519,4 +523,4 @@ customer-support-resolution-agent/
 └── README.md
 ```
 
-The PDF lists a **ticketing API** among the mock services (§5), but its repository tree only has `payments/` and `shipping/` under `mock_services/`. See the open question in [`tasks.md`](tasks.md).
+The PDF lists a **ticketing API** among the mock services (§5), but its repository tree only has `payments/` and `shipping/` under `mock_services/`. **Decided (Q1 in [`tasks.md`](tasks.md), 2026-10-24):** the ticketing API is a separate mock service in `mock_services/ticketing/` (port 8003). The app's `tickets` table stays the local record, and its status changes only after the ticketing API confirms.
