@@ -24,8 +24,8 @@ x-mock-service: &mock-service
 
 services:
   postgres:
-    # Plain PostgreSQL 17 with the pgvector extension available but not enabled.
-    # Whether to run CREATE EXTENSION vector is open question Q3.
+    # PostgreSQL 17 with pgvector (Q3 decided). The extension is enabled by a
+    # migration (CREATE EXTENSION vector), not by this container.
     image: pgvector/pgvector:0.8.0-pg17
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-support}

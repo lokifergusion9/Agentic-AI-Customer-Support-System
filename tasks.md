@@ -81,7 +81,7 @@ The reference interaction the system must handle end to end (PDF §1):
 
 ### Data and schema
 
-- [ ] **W1.1 — Synthetic policy documents** (§9). Write a small set covering:
+- [x] **W1.1 — Synthetic policy documents** (§9). Write a small set covering:
   - refund eligibility
   - return processing
   - damaged products
@@ -89,8 +89,8 @@ The reference interaction the system must handle end to end (PDF §1):
   - exceptions requiring human review
 
   Give each document an ID, a version and effective dates. Example policy from the PDF: *"Refunds for returned items become eligible after the return is received and inspection passes. A support reviewer must approve every refund."*
-- [ ] **W1.2 — Synthetic customer records** (§1, §16). In `scripts/seed_data.py`, seed customers, orders, order items and returns. Include enough variety for the eval categories in W4.1: eligible, ineligible, already refunded, return not received, inspection failed, damaged, delayed shipment, and orders that belong to another customer.
-- [ ] **W1.3 — PostgreSQL schema and migrations** (§7). One migration per table. Keep the PDF field set:
+- [x] **W1.2 — Synthetic customer records** (§1, §16). In `scripts/seed_data.py`, seed customers, orders, order items and returns. Include enough variety for the eval categories in W4.1: eligible, ineligible, already refunded, return not received, inspection failed, damaged, delayed shipment, and orders that belong to another customer.
+- [x] **W1.3 — PostgreSQL schema and migrations** (§7). One migration per table. Keep the PDF field set:
 
   | Table | Important fields |
   |---|---|
@@ -107,14 +107,14 @@ The reference interaction the system must handle end to end (PDF §1):
   | `refund_operations` | `id`, `order_id`, `proposal_id`, `amount_minor`, `idempotency_key`, `provider_reference`, `status` |
   | `audit_events` | `id`, `run_id`, `actor`, `event_type`, `redacted_payload`, `created_at` |
 
-- [ ] **W1.4 — Database rules** (§7):
-  - [ ] Money is stored in **integer minor units** (paise / cents).
-  - [ ] **Unique constraint** on `refund_operations.idempotency_key`.
-  - [ ] Track successful refunds **and** amounts reserved by pending operations.
-  - [ ] Total committed refunds can never exceed the refundable balance, enforced in a transaction.
-  - [ ] Record approval timestamps and the **exact proposal** that was approved.
-  - [ ] Migrations reproduce the schema from scratch for another developer.
-  - [ ] Application tables are kept logically separate from LangGraph checkpoint tables (§5).
+- [x] **W1.4 — Database rules** (§7):
+  - [x] Money is stored in **integer minor units** (paise / cents).
+  - [x] **Unique constraint** on `refund_operations.idempotency_key`.
+  - [x] Track successful refunds **and** amounts reserved by pending operations.
+  - [x] Total committed refunds can never exceed the refundable balance, enforced in a transaction.
+  - [x] Record approval timestamps and the **exact proposal** that was approved.
+  - [x] Migrations reproduce the schema from scratch for another developer.
+  - [x] Application tables are kept logically separate from LangGraph checkpoint tables (§5).
 
 ### Auth and API
 
@@ -442,9 +442,9 @@ Confirm before sharing the project. Tasks that satisfy each item are in brackets
 | # | Question | Why it matters |
 |---|---|---|
 | Q1 | Where does the **mock ticketing API** live? §5 lists it, but the §17 tree only has `mock_services/payments/` and `mock_services/shipping/`. Options: add `mock_services/ticketing/`, or treat the `tickets` table plus `update_ticket` as the ticketing system and inject faults there. | Needed for the *"refund succeeds, ticket update fails"* failure test. **Decided (2026-10-24): Option A, `mock_services/ticketing/`** (external helpdesk mock, port 8003). The app's `tickets` table stays the local record, and its status changes only after the ticketing API confirms. |
-| Q2 | There is no `payments` table in the §7 schema. Confirm that payment and refund state come only from the mock payment API. | Affects `get_payment_status` and the refundable-balance calculation. |
-| Q3 | Embeddings: pgvector inside PostgreSQL (optional per §5), or a simpler first pass? Which embedding model? | Affects W2.1, docker-compose, and `.env.example`. |
-| Q4 | Which LLM provider and model, and what per-run step and cost limits? | Affects W2.9–W2.15 and the operational metrics. |
-| Q5 | Customer and reviewer auth for the demo: static tokens, simple JWT, or an external IdP subject? | Affects W1.5, W1.6, and the authorization eval cases. |
-| Q6 | Store currency (the PDF example uses `INR`) and the approval expiry duration. | One store and one currency (§3). Expiry drives W3.6. |
-| Q7 | Prototype inline execution only, or the `202 Accepted` + worker model from the start? | Affects W3.12 and W3.13 and the crash-recovery demo. |
+| Q2 | There is no `payments` table in the §7 schema. Confirm that payment and refund state come only from the mock payment API. | Affects `get_payment_status` and the refundable-balance calculation. **Decided (2026-10-25): yes, no `payments` table.** `get_payment_status` calls the mock payment API (port 8001), which is the source of truth for payment and refund state. Locally, `orders.paid_amount_minor` plus `refund_operations` (successful refunds and pending reservations) give the refundable balance, which is cross-checked with the provider before execution and during reconciliation (W3.12). |
+| Q3 | Embeddings: pgvector inside PostgreSQL (optional per §5), or a simpler first pass? Which embedding model? | Affects W2.1, docker-compose, and `.env.example`. **Decided (2026-10-25): pgvector + a local embedding model** (sentence-transformers `all-MiniLM-L6-v2`, 384 dimensions). No API key or per-call cost, and embeddings are reproducible for W4. `CREATE EXTENSION vector` runs in a migration, and `policy_chunks.embedding` is `vector(384)`. |
+| Q4 | Which LLM provider and model, and what per-run step and cost limits? | Affects W2.9–W2.15 and the operational metrics. **Decided (2026-10-25): Gemini API free tier, a Flash model.** The exact model ID is pinned in `.env` at W2.9 from the current free-tier list in Google AI Studio. `LLM_PROVIDER` stays configurable so evals can switch to a local Ollama model through `.env` if the free quota (per project, per model, not guaranteed) is too small for W4. Limits: `MAX_WORKFLOW_STEPS=25` and `MAX_RUN_TOKENS=50000` (replaces a cost limit, since free-tier cost is $0). Rate-limit (HTTP 429) errors retry with bounded backoff, then escalate. Operational metrics report tokens and model calls, with estimated cost shown as free tier, $0. |
+| Q5 | Customer and reviewer auth for the demo: static tokens, simple JWT, or an external IdP subject? | Affects W1.5, W1.6, and the authorization eval cases. **Decided (2026-10-25): simple JWT (HS256), signed locally** with `JWT_SECRET`. A dev script mints demo tokens. The `sub` claim maps to `customers.external_auth_subject`, and a `role` claim (`customer`, `reviewer` or `senior_reviewer`) drives the reviewer permission check (W1.6). A refund above ₹50,000 (`amount_minor > 5000000`) can be approved only by a `senior_reviewer` (`human_review_exceptions_v1:section_3`). Expired, tampered and wrong-role tokens become authorization eval cases (W4.1). `pyjwt` is added at W1.5. |
+| Q6 | Store currency (the PDF example uses `INR`) and the approval expiry duration. | One store and one currency (§3). Expiry drives W3.6. **Decided (2026-10-25): INR, approval expiry 60 minutes.** Money is stored in paise (₹2,499.00 = `249900`), matching the PDF example. `STORE_CURRENCY=INR` and `APPROVAL_EXPIRY_MINUTES=60` live in `.env.example`. The approval-expired test (W3.16) advances the clock or sets a short expiry rather than waiting. |
+| Q7 | Prototype inline execution only, or the `202 Accepted` + worker model from the start? | Affects W3.12 and W3.13 and the crash-recovery demo. **Decided (2026-10-25): inline first, then `202 Accepted` + a separate worker process at W3.13.** Weeks 1–2 run workflows inline. W3.13 adds a separate `jobs` table (`run_id`, `status`, `attempts`, `lease_expires_at`), keeping the §7 tables unchanged, and a worker process that claims jobs with `SELECT ... FOR UPDATE SKIP LOCKED`. The queue is Postgres-backed, with no Redis or Celery. On startup the worker runs the reconciliation sweep (W3.12) before picking up jobs. A `worker` service is added to docker-compose, so the W3 gate check can kill and restart the worker alone. |

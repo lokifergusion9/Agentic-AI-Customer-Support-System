@@ -61,13 +61,18 @@ docker compose --profile mocks up -d
 Useful commands:
 
 ```bash
-uv run pytest            # run the tests
-uv run ruff check .      # lint
-docker compose down      # stop containers (data is kept)
-docker compose down -v   # stop containers and delete the database volume
+uv run alembic upgrade head    # create or update the database schema
+uv run alembic downgrade base  # remove the schema (keeps the database)
+uv run pytest                  # run the tests (integration tests need PostgreSQL running)
+uv run ruff check .            # lint
+docker compose down            # stop containers (data is kept)
+docker compose down -v         # stop containers and delete the database volume
 ```
 
-LLM and embedding settings in `.env.example` are left empty until the provider and embedding choices are made.
+Model and embedding configuration (see `.env.example`):
+
+- **LLM:** Gemini API free tier with a Flash model. Put a free Google AI Studio key in `LLM_API_KEY`. `LLM_PROVIDER` can be switched to a local model if the free quota runs out.
+- **Embeddings:** local sentence-transformers `all-MiniLM-L6-v2` (384 dimensions), stored with pgvector. No API key needed.
 
 ## Status
 
