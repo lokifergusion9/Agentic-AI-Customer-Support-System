@@ -10,7 +10,7 @@ is seeded. The one exception is the 2025 order, which needs real 2025 dates to f
 refund_policy v0. Shipping delays count business days, as the shipping policy does.
 
 The data for the mock payment and shipping services is defined here too, so there is a single
-source of truth. The mocks receive it through their reset endpoints (W1.8, W1.9) when
+source of truth. The mocks receive it through their reset endpoints (W1.8-W1.10) when
 `--push-mocks` is given; their state is in memory, so push again after restarting them.
 """
 
@@ -373,6 +373,33 @@ def mock_shipping_state(today: date) -> list[dict[str, Any]]:
     return shipments
 
 
+def mock_ticketing_state(today: date) -> list[dict[str, Any]]:
+    """Tickets held by the mock ticketing provider (W1.10): the earlier refund tickets.
+
+    They match the tickets inserted by `insert_past_refund`, linked by external_ticket_ref.
+    """
+    tickets = []
+    for scenario in scenarios(today):
+        if not scenario.past_refund:
+            continue
+        assert scenario.return_ and scenario.return_.received
+        handled_on = scenario.return_.received
+        tickets.append(
+            {
+                "ref": f"ext_{scenario.number}",
+                "local_ticket_id": f"tkt_{scenario.number}",
+                "customer_id": scenario.customer_id,
+                "subject": f"Refund request for {scenario.order_id}",
+                "status": past_ticket_status(scenario),
+                "created_at": at(handled_on, 9).isoformat(),
+                "notes": [
+                    {"text": past_ticket_note(scenario), "at": at(handled_on, 11).isoformat()}
+                ],
+            }
+        )
+    return tickets
+
+
 def seed(connection: Connection, today: date) -> list[Scenario]:
     """Replace all business data with the scenarios as of `today`."""
     tables = ", ".join(f"{SCHEMA}.{table}" for table in BUSINESS_TABLES)
@@ -449,12 +476,21 @@ def insert_order(connection: Connection, scenario: Scenario) -> None:
         )
 
 
+def past_ticket_status(scenario: Scenario) -> str:
+    return "resolved" if scenario.past_refund == "succeeded" else "open"
+
+
+def past_ticket_note(scenario: Scenario) -> str:
+    if scenario.past_refund == "succeeded":
+        return "Refund issued."
+    return "Refund submitted, awaiting provider."
+
+
 def insert_past_refund(connection: Connection, scenario: Scenario) -> None:
     """A refund handled by an earlier ticket: ticket, run, proposal, approval, operation."""
     assert scenario.return_ and scenario.return_.received
     number = scenario.number
     approved_on = scenario.return_.received
-    succeeded = scenario.past_refund == "succeeded"
     payload = {
         "action": "request_refund_approval",
         "order_id": scenario.order_id,
@@ -469,8 +505,10 @@ def insert_past_refund(connection: Connection, scenario: Scenario) -> None:
     statements = [
         (
             f"INSERT INTO {SCHEMA}.tickets (id, customer_id, order_id, category, status, "
-            "customer_message, summary) VALUES (:ticket, :customer, :order, 'refund_request', "
-            ":ticket_status, 'I returned my item. When will I get my refund?', :summary)"
+            "customer_message, summary, external_ticket_ref, created_at, updated_at) VALUES "
+            "(:ticket, :customer, :order, 'refund_request', :ticket_status, "
+            "'I returned my item. When will I get my refund?', :summary, :external_ref, "
+            ":started, :completed)"
         ),
         (
             f"INSERT INTO {SCHEMA}.workflow_runs (id, ticket_id, thread_id, status, started_at, "
@@ -502,8 +540,9 @@ def insert_past_refund(connection: Connection, scenario: Scenario) -> None:
         "operation": f"rop_{number}",
         "customer": scenario.customer_id,
         "order": scenario.order_id,
-        "ticket_status": "resolved" if succeeded else "open",
-        "summary": "Refund issued." if succeeded else "Refund submitted, awaiting provider.",
+        "ticket_status": past_ticket_status(scenario),
+        "summary": past_ticket_note(scenario),
+        "external_ref": f"ext_{number}",
         "started": at(approved_on, 9),
         "completed": at(approved_on, 11),
         "payload": json.dumps(payload),
@@ -534,6 +573,13 @@ def push_mock_shipping(client: httpx.Client, today: date) -> dict[str, int]:
     return response.json()
 
 
+def push_mock_ticketing(client: httpx.Client, today: date) -> dict[str, int]:
+    """Replace the mock ticketing provider's state with the tickets as of `today`."""
+    response = client.post("/admin/reset", json={"tickets": mock_ticketing_state(today)})
+    response.raise_for_status()
+    return response.json()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -545,7 +591,7 @@ def main() -> None:
     parser.add_argument(
         "--push-mocks",
         action="store_true",
-        help="also load the mock payment and shipping data (they must be running)",
+        help="also load the mock payment, shipping and ticketing data (they must be running)",
     )
     args = parser.parse_args()
     settings = get_settings()
@@ -572,6 +618,12 @@ def main() -> None:
                 settings.mock_shipping_url,
                 settings.mock_shipping_api_key,
                 push_mock_shipping,
+            ),
+            (
+                "ticketing",
+                settings.mock_ticketing_url,
+                settings.mock_ticketing_api_key,
+                push_mock_ticketing,
             ),
         ]
         for name, url, api_key, push in mocks:

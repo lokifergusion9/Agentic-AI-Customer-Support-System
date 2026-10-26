@@ -9,6 +9,7 @@ from scripts.seed_data import (
     business_days_before,
     mock_payments_state,
     mock_shipping_state,
+    mock_ticketing_state,
     scenarios,
     seed,
 )
@@ -134,6 +135,22 @@ def test_mock_shipping_matches_the_database(seeded: Connection) -> None:
         else:
             assert (order.status, shipment["status"]) == ("shipped", "in_transit")
             assert shipment["delivered_at"] is None and order.delivered_at is None
+
+
+def test_mock_ticketing_matches_the_database(seeded: Connection) -> None:
+    rows = seeded.execute(
+        text(
+            "SELECT id, customer_id, status, summary, external_ticket_ref, created_at "
+            "FROM support.tickets ORDER BY id"
+        )
+    ).all()
+    tickets = mock_ticketing_state(TODAY)
+    assert [t["ref"] for t in tickets] == [row.external_ticket_ref for row in rows]
+    for ticket, row in zip(tickets, rows, strict=True):
+        assert (ticket["local_ticket_id"], ticket["customer_id"]) == (row.id, row.customer_id)
+        assert ticket["status"] == row.status
+        assert [n["text"] for n in ticket["notes"]] == [row.summary]
+        assert datetime.fromisoformat(ticket["created_at"]) == row.created_at
 
 
 def test_reseeding_replaces_business_data_and_keeps_policies(seeded: Connection) -> None:

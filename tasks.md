@@ -132,7 +132,7 @@ The reference interaction the system must handle end to end (PDF §1):
   - [x] Payment status and refund status can be queried by order, by key, or by provider reference.
   - [x] Fault injection: errors, delayed results, and *"accept the refund but time out before responding"*.
 - [x] **W1.9 — Mock shipping API** (§5). Shipment status for order-status complaints, with error and delay injection.
-- [ ] **W1.10 — Mock ticketing API** (§5). Ticket status and notes updates, with failure injection so the *"refund succeeds, ticket update fails"* case can be tested. Lives in `mock_services/ticketing/` (Q1 decided).
+- [x] **W1.10 — Mock ticketing API** (§5). Ticket status and notes updates, with failure injection so the *"refund succeeds, ticket update fails"* case can be tested. Lives in `mock_services/ticketing/` (Q1 decided).
 - [ ] **W1.11 — Mock order API** (§16). Week 1 lists *"mock order, shipping, and payment APIs"*. Orders are read through a service layer over the seeded tables, or a thin mock over them.
 
 ### Deterministic business logic

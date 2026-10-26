@@ -3,9 +3,10 @@
 #   docker compose up -d                    # PostgreSQL only
 #   docker compose --profile mocks up -d    # PostgreSQL + mock services
 #
-# The mock services sit behind the "mocks" profile until their apps exist
-# (W1.8 payments, W1.9 shipping, W1.10 ticketing). Every value has a local-only default and
-# can be overridden from .env (P0.4).
+# The mock services (W1.8 payments, W1.9 shipping, W1.10 ticketing) sit behind the "mocks"
+# profile. They keep state in memory, so load it after starting them:
+#   uv run python -m scripts.seed_data --push-mocks
+# Every value has a local-only default and can be overridden from .env (P0.4).
 
 name: customer-support-resolution-agent
 
@@ -69,6 +70,9 @@ services:
     command: >
       uv run --frozen --no-dev
       uvicorn mock_services.ticketing.main:app --host 0.0.0.0 --port 8003
+    environment:
+      <<: *mock-env
+      MOCK_TICKETING_API_KEY: ${MOCK_TICKETING_API_KEY:-mock-ticketing-local-key}
     ports:
       - "${MOCK_TICKETING_PORT:-8003}:8003"
 

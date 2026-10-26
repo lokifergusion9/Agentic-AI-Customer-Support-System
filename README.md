@@ -54,8 +54,10 @@ cp .env.example .env
 docker compose up -d
 
 # 4. Start PostgreSQL + mock payment, shipping and ticketing services
-#    (the mock apps are added in Week 1, tasks W1.8, W1.9 and W1.10)
+#    (ports 8001, 8002, 8003), then load the demo data into the database and the mocks
 docker compose --profile mocks up -d
+uv run alembic upgrade head
+uv run python -m scripts.seed_data --push-mocks
 ```
 
 Useful commands:
@@ -65,9 +67,8 @@ uv run alembic upgrade head    # create or update the database schema
 uv run alembic downgrade base  # remove the schema (keeps the database)
 uv run uvicorn app.main:app --reload  # run the API on http://localhost:8000 (GET /health)
 uv run python -m scripts.seed_data    # load the demo scenarios (resets business tables)
-uv run python -m scripts.seed_data --push-mocks  # ...and load the mock payment + shipping data
+uv run python -m scripts.seed_data --push-mocks  # ...and load the data into the three mocks
 uv run python -m scripts.mint_token auth|alice   # demo JWT (--role reviewer|senior_reviewer)
-docker compose --profile mocks up -d mock-payments mock-shipping  # mocks on :8001 and :8002
 uv run pytest                  # run the tests (integration tests need PostgreSQL running)
 uv run ruff check .            # lint
 docker compose down            # stop containers (data is kept)
