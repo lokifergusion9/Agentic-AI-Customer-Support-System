@@ -149,7 +149,7 @@ The reference interaction the system must handle end to end (PDF §1):
   ```json
   { "success": false, "error_code": "RETURN_NOT_RECEIVED", "retryable": false, "message": "The return has not been marked as received." }
   ```
-- [ ] **W1.14 — Deterministic refund eligibility** (§6, §16). Pure code that decides *eligible / already processing / blocked*. It covers the return-received check, the inspection status, and the refundable balance (paid amount minus successful refunds minus pending reservations), all in minor units.
+- [x] **W1.14 — Deterministic refund eligibility** (§6, §16). Pure code that decides *eligible / already processing / blocked*. It covers the return-received check, the inspection status, and the refundable balance (paid amount minus successful refunds minus pending reservations), all in minor units.
 - [ ] **W1.15 — Manual resolution path** (§16). Through the APIs and services alone (no LLM):
   1. create a ticket
   2. check eligibility
