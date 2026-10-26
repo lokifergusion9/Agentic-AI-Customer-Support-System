@@ -1,8 +1,6 @@
 """Mock payment / refund API (W1.8): `uvicorn mock_services.payments.main:app --port 8001`.
 
-Every endpoint except `/health` needs the `X-API-Key` header, so payment credentials stay on
-the server and are never something the model can supply (PDF section 8). Failures use the
-structured shape from W1.13.
+Every endpoint except `/health` needs the `X-API-Key` header (see `mock_services.common`).
 
 Idempotency contract (PDF section 12): the same key with the same payload returns the same
 refund; the same key with a changed payload is rejected.
@@ -13,12 +11,19 @@ import time
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, FastAPI, Header, Query, Request, Response, status
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, FastAPI, Query, Response, status
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from mock_services.payments.store import Fault, Payment, Refund, store
+from mock_services.common import (
+    FaultRequestBase,
+    MockError,
+    add_error_handler,
+    add_fault_routes,
+    api_key_check,
+    raise_fault_error,
+)
+from mock_services.payments.store import Payment, Refund, store
 
 
 class Settings(BaseSettings):
@@ -31,36 +36,9 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
-class MockError(Exception):
-    def __init__(
-        self, status_code: int, error_code: str, message: str, *, retryable: bool = False
-    ) -> None:
-        self.status_code = status_code
-        self.error_code = error_code
-        self.message = message
-        self.retryable = retryable
-
-
-def require_api_key(x_api_key: Annotated[str | None, Header()] = None) -> None:
-    if x_api_key != settings.mock_payments_api_key:
-        raise MockError(status.HTTP_401_UNAUTHORIZED, "INVALID_API_KEY", "Invalid API key.")
-
-
 app = FastAPI(title="Mock payment provider")
-api = APIRouter(dependencies=[Depends(require_api_key)])
-
-
-@app.exception_handler(MockError)
-def mock_error(_: Request, error: MockError) -> JSONResponse:
-    return JSONResponse(
-        status_code=error.status_code,
-        content={
-            "success": False,
-            "error_code": error.error_code,
-            "retryable": error.retryable,
-            "message": error.message,
-        },
-    )
+add_error_handler(app)
+api = APIRouter(dependencies=[Depends(api_key_check(settings.mock_payments_api_key))])
 
 
 class RefundOut(BaseModel):
@@ -260,11 +238,9 @@ def create_refund(request: RefundRequest, response: Response) -> RefundOut:
             )
 
         # Faults apply only to new, valid refunds; a replay above always returns the stored one.
-        fault = store.faults.pop(0) if store.faults else None
+        fault = store.faults.pop()
         if fault is not None and fault.mode == "error":
-            raise MockError(
-                fault.status_code, fault.error_code, "Injected failure.", retryable=fault.retryable
-            )
+            raise_fault_error(fault)
 
         refund = Refund(
             provider_reference=f"rf_{secrets.token_hex(8)}",
@@ -288,38 +264,17 @@ def create_refund(request: RefundRequest, response: Response) -> RefundOut:
 # --- Fault injection --------------------------------------------------------------------
 
 
-class FaultRequest(BaseModel):
-    """Applied to the next `count` new refund requests, in order."""
+class FaultRequest(FaultRequestBase):
+    """Applied to the next `count` new refund requests, in order.
+
+    error: the refund is not recorded. delay: the refund stays pending until settled.
+    accept_then_timeout: the refund is recorded, then the response is held `delay_seconds`.
+    """
 
     mode: Literal["error", "delay", "accept_then_timeout"]
-    count: int = Field(default=1, ge=1, le=100)
-    # mode=error: the refund is not recorded and this error is returned.
-    status_code: int = Field(default=503, ge=400, le=599)
-    error_code: str = "PROVIDER_UNAVAILABLE"
-    retryable: bool = True
-    # mode=accept_then_timeout: how long to hold the response after recording the refund.
-    delay_seconds: float = Field(default=5.0, ge=0, le=60)
 
 
-@api.post("/admin/faults")
-def add_faults(request: FaultRequest) -> dict[str, int]:
-    fault = Fault(
-        mode=request.mode,
-        status_code=request.status_code,
-        error_code=request.error_code,
-        retryable=request.retryable,
-        delay_seconds=request.delay_seconds,
-    )
-    with store.lock:
-        store.faults.extend([fault] * request.count)
-        return {"queued": len(store.faults)}
-
-
-@api.delete("/admin/faults")
-def clear_faults() -> dict[str, int]:
-    with store.lock:
-        store.faults.clear()
-        return {"queued": 0}
+add_fault_routes(api, store.faults, FaultRequest)
 
 
 class SettleRequest(BaseModel):

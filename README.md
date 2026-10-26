@@ -65,9 +65,9 @@ uv run alembic upgrade head    # create or update the database schema
 uv run alembic downgrade base  # remove the schema (keeps the database)
 uv run uvicorn app.main:app --reload  # run the API on http://localhost:8000 (GET /health)
 uv run python -m scripts.seed_data    # load the demo scenarios (resets business tables)
-uv run python -m scripts.seed_data --push-mocks  # ...and load the mock payment data too
+uv run python -m scripts.seed_data --push-mocks  # ...and load the mock payment + shipping data
 uv run python -m scripts.mint_token auth|alice   # demo JWT (--role reviewer|senior_reviewer)
-docker compose --profile mocks up -d mock-payments  # mock payment API on http://localhost:8001
+docker compose --profile mocks up -d mock-payments mock-shipping  # mocks on :8001 and :8002
 uv run pytest                  # run the tests (integration tests need PostgreSQL running)
 uv run ruff check .            # lint
 docker compose down            # stop containers (data is kept)

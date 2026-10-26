@@ -327,6 +327,34 @@ def mock_payments_state(today: date) -> list[dict[str, Any]]:
     return payments
 
 
+def courier_events(scenario: Scenario) -> list[dict[str, str]]:
+    """Courier scans, oldest first. The last one is the current status (shipping_delays §3, §5).
+
+    A delayed parcel's last scan is the day before its estimate, so a possibly lost parcel
+    has had no update for over a week.
+    """
+    current = shipment(scenario)
+
+    def event(status: str, day: date, hour: int, location: str) -> dict[str, str]:
+        return {"status": status, "at": at(day, hour).isoformat(), "location": location}
+
+    events = [
+        event("label_created", scenario.placed, 18, "Bengaluru warehouse"),
+        event("in_transit", scenario.placed + timedelta(days=1), 9, "Bengaluru sorting hub"),
+    ]
+    if current.status == "delivered":
+        assert scenario.delivered
+        events += [
+            event("out_for_delivery", scenario.delivered, 7, "Local delivery centre"),
+            # Same time as orders.delivered_at.
+            event("delivered", scenario.delivered, 10, "Delivered to customer"),
+        ]
+    else:
+        last_scan = current.estimated_delivery - timedelta(days=1)
+        events.append(event(current.status, last_scan, 21, "Destination hub"))
+    return events
+
+
 def mock_shipping_state(today: date) -> list[dict[str, Any]]:
     """Shipments held by the mock shipping provider (W1.9)."""
     shipments = []
@@ -339,6 +367,7 @@ def mock_shipping_state(today: date) -> list[dict[str, Any]]:
                 "status": current.status,
                 "estimated_delivery": current.estimated_delivery.isoformat(),
                 "delivered_at": at(scenario.delivered).isoformat() if scenario.delivered else None,
+                "events": courier_events(scenario),
             }
         )
     return shipments
@@ -498,6 +527,13 @@ def push_mock_payments(client: httpx.Client, today: date) -> dict[str, int]:
     return response.json()
 
 
+def push_mock_shipping(client: httpx.Client, today: date) -> dict[str, int]:
+    """Replace the mock shipping provider's state with the shipments as of `today`."""
+    response = client.post("/admin/reset", json={"shipments": mock_shipping_state(today)})
+    response.raise_for_status()
+    return response.json()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -509,7 +545,7 @@ def main() -> None:
     parser.add_argument(
         "--push-mocks",
         action="store_true",
-        help="also load the mock payment data (`docker compose --profile mocks up -d`)",
+        help="also load the mock payment and shipping data (they must be running)",
     )
     args = parser.parse_args()
     settings = get_settings()
@@ -524,19 +560,30 @@ def main() -> None:
         print(f"  {scenario.order_id}  {scenario.customer_id:<11} {scenario.name}")
 
     if args.push_mocks:
-        payments = httpx.Client(
-            base_url=settings.mock_payments_url,
-            headers={"X-API-Key": settings.mock_payments_api_key},
-            timeout=10,
-        )
-        try:
-            with payments:
-                pushed = push_mock_payments(payments, args.today)
-        except httpx.HTTPError as error:
-            raise SystemExit(
-                f"Could not reset the mock payment API at {settings.mock_payments_url}: {error}"
-            ) from error
-        print(f"Mock payments: {pushed['payments']} payments, {pushed['refunds']} refunds")
+        mocks = [
+            (
+                "payment",
+                settings.mock_payments_url,
+                settings.mock_payments_api_key,
+                push_mock_payments,
+            ),
+            (
+                "shipping",
+                settings.mock_shipping_url,
+                settings.mock_shipping_api_key,
+                push_mock_shipping,
+            ),
+        ]
+        for name, url, api_key, push in mocks:
+            client = httpx.Client(base_url=url, headers={"X-API-Key": api_key}, timeout=10)
+            try:
+                with client:
+                    pushed = push(client, args.today)
+            except httpx.HTTPError as error:
+                raise SystemExit(
+                    f"Could not reset the mock {name} API at {url}: {error}"
+                ) from error
+            print(f"Mock {name}: " + ", ".join(f"{n} {kind}" for kind, n in pushed.items()))
 
 
 if __name__ == "__main__":

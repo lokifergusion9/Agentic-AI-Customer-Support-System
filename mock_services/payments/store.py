@@ -9,6 +9,8 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from mock_services.common import FaultQueue
+
 
 @dataclass
 class Refund:
@@ -38,31 +40,20 @@ class Payment:
         return self.amount_minor - held
 
 
-@dataclass(frozen=True)
-class Fault:
-    """An injected failure for one new refund request (see POST /admin/faults)."""
-
-    mode: str  # error | delay | accept_then_timeout
-    status_code: int
-    error_code: str
-    retryable: bool
-    delay_seconds: float
-
-
 class Store:
     def __init__(self) -> None:
         self.lock = threading.Lock()
         self.payments: dict[str, Payment] = {}  # by order_id
         self.refunds: dict[str, Refund] = {}  # by provider_reference
         self.by_key: dict[str, Refund] = {}  # by idempotency_key
-        self.faults: list[Fault] = []  # applied to new refund requests, oldest first
+        self.faults = FaultQueue()  # applied to new refund requests
 
     def reset(self, payments: list[Payment]) -> None:
         with self.lock:
             self.payments = {p.order_id: p for p in payments}
             self.refunds = {r.provider_reference: r for p in payments for r in p.refunds}
             self.by_key = {r.idempotency_key: r for r in self.refunds.values()}
-            self.faults = []
+            self.faults.clear()
 
     def add(self, payment: Payment, refund: Refund) -> None:
         """Record a new refund. The caller holds `lock`."""

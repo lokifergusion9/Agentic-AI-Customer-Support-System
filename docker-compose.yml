@@ -58,6 +58,9 @@ services:
     command: >
       uv run --frozen --no-dev
       uvicorn mock_services.shipping.main:app --host 0.0.0.0 --port 8002
+    environment:
+      <<: *mock-env
+      MOCK_SHIPPING_API_KEY: ${MOCK_SHIPPING_API_KEY:-mock-shipping-local-key}
     ports:
       - "${MOCK_SHIPPING_PORT:-8002}:8002"
 

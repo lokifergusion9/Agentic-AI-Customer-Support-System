@@ -1,6 +1,6 @@
 """The seed data loads cleanly and each scenario has the facts its eval cases rely on (W1.2)."""
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 from sqlalchemy import Connection, text
@@ -117,6 +117,23 @@ def test_mock_payments_match_the_database(seeded: Connection) -> None:
     assert {p["order_id"]: p["amount_minor"] for p in payments} == paid
     refunded = {p["order_id"]: p["refunds"][0]["status"] for p in payments if p["refunds"]}
     assert refunded == {"ord_1002": "succeeded", "ord_1003": "pending"}
+
+
+def test_mock_shipping_matches_the_database(seeded: Connection) -> None:
+    orders = {
+        row.id: row
+        for row in seeded.execute(text("SELECT id, status, delivered_at FROM support.orders"))
+    }
+    shipments = {s["order_id"]: s for s in mock_shipping_state(TODAY)}
+    assert shipments.keys() == orders.keys()
+    for order_id, shipment in shipments.items():
+        order = orders[order_id]
+        if order.status == "delivered":
+            assert shipment["status"] == "delivered"
+            assert datetime.fromisoformat(shipment["delivered_at"]) == order.delivered_at
+        else:
+            assert (order.status, shipment["status"]) == ("shipped", "in_transit")
+            assert shipment["delivered_at"] is None and order.delivered_at is None
 
 
 def test_reseeding_replaces_business_data_and_keeps_policies(seeded: Connection) -> None:

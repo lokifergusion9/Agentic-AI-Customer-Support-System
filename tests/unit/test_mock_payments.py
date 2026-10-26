@@ -1,19 +1,16 @@
 """Mock payment provider: idempotency contract, queries and fault injection (W1.8)."""
 
-import socket
-import threading
-import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 
 import httpx
 import pytest
-import uvicorn
 from fastapi.testclient import TestClient
 
 from mock_services.payments.main import app, settings
 from scripts.seed_data import push_mock_payments
+from tests.unit.live_server import serve
 
 TODAY = date(2026, 10, 25)
 KEY = {"X-API-Key": settings.mock_payments_api_key}
@@ -267,20 +264,8 @@ def test_invalid_faults_are_rejected(client: TestClient, body: dict) -> None:
 
 @pytest.fixture
 def live_server() -> Iterator[str]:
-    """The mock on a real socket, so a real client timeout can fire."""
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error"))
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    deadline = time.monotonic() + 10
-    while not server.started:
-        assert time.monotonic() < deadline, "mock payment server did not start"
-        time.sleep(0.05)
-    yield f"http://127.0.0.1:{port}"
-    server.should_exit = True
-    thread.join(timeout=10)
+    with serve(app) as url:
+        yield url
 
 
 def test_refund_is_recorded_even_when_the_client_times_out(live_server: str) -> None:
