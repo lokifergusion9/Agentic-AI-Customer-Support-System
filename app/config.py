@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expiry_minutes: int = 60
 
+    # Mock payment provider (W1.8). The API key never reaches the model.
+    mock_payments_url: str = "http://localhost:8001"
+    mock_payments_api_key: str = "mock-payments-local-key"
+
 
 @lru_cache
 def get_settings() -> Settings:

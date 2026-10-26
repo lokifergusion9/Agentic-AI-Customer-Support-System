@@ -16,7 +16,7 @@ x-mock-service: &mock-service
   volumes:
     - .:/workspace
     - uv-cache:/root/.cache/uv
-  environment:
+  environment: &mock-env
     # Keep the container's virtualenv out of the bind-mounted host .venv.
     UV_PROJECT_ENVIRONMENT: /opt/venv
     UV_LINK_MODE: copy
@@ -47,6 +47,9 @@ services:
     command: >
       uv run --frozen --no-dev
       uvicorn mock_services.payments.main:app --host 0.0.0.0 --port 8001
+    environment:
+      <<: *mock-env
+      MOCK_PAYMENTS_API_KEY: ${MOCK_PAYMENTS_API_KEY:-mock-payments-local-key}
     ports:
       - "${MOCK_PAYMENTS_PORT:-8001}:8001"
 

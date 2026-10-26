@@ -2,6 +2,7 @@
 
     uv run python -m scripts.seed_data                     # dates relative to today
     uv run python -m scripts.seed_data --today 2026-10-25  # fixed date (tests, evals)
+    uv run python -m scripts.seed_data --push-mocks        # also reset the mock services
 
 Business tables are emptied first; policy tables are left alone (they belong to W2.1).
 Scenario dates are offsets from `today`, so each scenario behaves the same on whichever day it
@@ -9,7 +10,8 @@ is seeded. The one exception is the 2025 order, which needs real 2025 dates to f
 refund_policy v0. Shipping delays count business days, as the shipping policy does.
 
 The data for the mock payment and shipping services is defined here too, so there is a single
-source of truth. The mocks receive it through their reset endpoints (W1.8, W1.9).
+source of truth. The mocks receive it through their reset endpoints (W1.8, W1.9) when
+`--push-mocks` is given; their state is in memory, so push again after restarting them.
 """
 
 import argparse
@@ -19,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 
+import httpx
 from sqlalchemy import Connection, create_engine, text
 
 from app.config import get_settings
@@ -488,6 +491,13 @@ def insert_past_refund(connection: Connection, scenario: Scenario) -> None:
         connection.execute(text(statement), params)
 
 
+def push_mock_payments(client: httpx.Client, today: date) -> dict[str, int]:
+    """Replace the mock payment provider's state with the payments as of `today`."""
+    response = client.post("/admin/reset", json={"payments": mock_payments_state(today)})
+    response.raise_for_status()
+    return response.json()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -496,9 +506,15 @@ def main() -> None:
         default=datetime.now(IST).date(),
         help="date the scenarios are relative to (default: today)",
     )
+    parser.add_argument(
+        "--push-mocks",
+        action="store_true",
+        help="also load the mock payment data (`docker compose --profile mocks up -d`)",
+    )
     args = parser.parse_args()
+    settings = get_settings()
 
-    engine = create_engine(get_settings().database_url)
+    engine = create_engine(settings.database_url)
     with engine.begin() as connection:
         seeded = seed(connection, args.today)
     engine.dispose()
@@ -506,6 +522,21 @@ def main() -> None:
     print(f"Seeded {len(CUSTOMERS)} customers and {len(seeded)} orders as of {args.today}:")
     for scenario in seeded:
         print(f"  {scenario.order_id}  {scenario.customer_id:<11} {scenario.name}")
+
+    if args.push_mocks:
+        payments = httpx.Client(
+            base_url=settings.mock_payments_url,
+            headers={"X-API-Key": settings.mock_payments_api_key},
+            timeout=10,
+        )
+        try:
+            with payments:
+                pushed = push_mock_payments(payments, args.today)
+        except httpx.HTTPError as error:
+            raise SystemExit(
+                f"Could not reset the mock payment API at {settings.mock_payments_url}: {error}"
+            ) from error
+        print(f"Mock payments: {pushed['payments']} payments, {pushed['refunds']} refunds")
 
 
 if __name__ == "__main__":
