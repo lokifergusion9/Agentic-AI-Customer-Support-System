@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     # Local-only default matching docker-compose.yml.
     database_url: str = "postgresql+psycopg://support:support@localhost:5432/support"
 
+    # Locally signed HS256 JWTs (Q5). Local-only default matching .env.example.
+    jwt_secret: str = "change-me-local-dev-only-32-bytes-min"
+    jwt_algorithm: str = "HS256"
+    jwt_expiry_minutes: int = 60
+
 
 @lru_cache
 def get_settings() -> Settings:
