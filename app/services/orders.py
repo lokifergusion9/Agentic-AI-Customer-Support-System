@@ -21,6 +21,19 @@ def order_not_found() -> ServiceFailure:
     return ServiceFailure("ORDER_NOT_FOUND", "No order with this ID was found.")
 
 
+def ensure_order_owner(db: Session, customer: AuthenticatedCustomer, order_id: str) -> None:
+    """Raise ORDER_NOT_FOUND unless the order exists and belongs to `customer`.
+
+    The same failure for a missing order and someone else's, so order IDs cannot be probed.
+    """
+    owned = db.execute(
+        text(f"SELECT 1 FROM {SCHEMA}.orders WHERE id = :order AND customer_id = :customer"),
+        {"order": order_id, "customer": customer.customer_id},
+    ).first()
+    if owned is None:
+        raise order_not_found()
+
+
 def get_order(db: Session, customer: AuthenticatedCustomer, order_id: str) -> OrderView:
     order = db.execute(
         text(

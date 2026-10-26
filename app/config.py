@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     mock_shipping_api_key: str = "mock-shipping-local-key"
     mock_ticketing_url: str = "http://localhost:8003"
     mock_ticketing_api_key: str = "mock-ticketing-local-key"
+    # Per-request timeout for calls to the providers above.
+    provider_timeout_seconds: float = 5.0
 
 
 @lru_cache

@@ -1,4 +1,4 @@
-"""Request and response bodies for POST /tickets (W1.7)."""
+"""Request and response bodies for POST /tickets (W1.7), and the ticket read result (W1.12)."""
 
 from datetime import datetime
 from typing import Annotated
@@ -27,3 +27,17 @@ class TicketResponse(BaseModel):
     status: str
     category: str | None
     created_at: datetime
+
+
+class TicketView(BaseModel):
+    """A ticket as the local record has it. The helpdesk copy is synced in W3.14."""
+
+    id: str
+    order_id: str | None
+    category: str | None
+    status: str
+    customer_message: str
+    summary: str | None
+    external_ticket_ref: str | None
+    created_at: datetime
+    updated_at: datetime

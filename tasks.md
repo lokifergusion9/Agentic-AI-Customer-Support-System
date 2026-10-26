@@ -137,7 +137,7 @@ The reference interaction the system must handle end to end (PDF §1):
 
 ### Deterministic business logic
 
-- [ ] **W1.12 — Read services** (§8). Each one checks ownership **inside the service**. An order ID supplied by a customer or the model does not grant access. Each returns typed, structured results:
+- [x] **W1.12 — Read services** (§8). Each one checks ownership **inside the service**. An order ID supplied by a customer or the model does not grant access. Each returns typed, structured results:
   - `get_order(order_id)`
   - `get_shipment_status(order_id)` (added 2026-10-26: order-status cases need the shipment;
     ownership is checked in the database before the shipping API is called)
@@ -145,7 +145,7 @@ The reference interaction the system must handle end to end (PDF §1):
   - `get_payment_status(order_id)`
   - `get_refund_status(operation_id)`
   - `get_ticket(ticket_id)`
-- [ ] **W1.13 — Structured failures** (§8). Every service returns failures in this shape:
+- [x] **W1.13 — Structured failures** (§8). Every service returns failures in this shape:
   ```json
   { "success": false, "error_code": "RETURN_NOT_RECEIVED", "retryable": false, "message": "The return has not been marked as received." }
   ```
