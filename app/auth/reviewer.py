@@ -44,8 +44,8 @@ def required_reviewer_role(amount_minor: int) -> str:
     return "senior_reviewer" if amount_minor > SENIOR_REVIEW_THRESHOLD_MINOR else "reviewer"
 
 
-def ensure_can_decide(reviewer: AuthenticatedReviewer, required_role: str) -> None:
-    """Raise 403 unless `reviewer` may approve or reject an approval needing `required_role`.
+def can_decide(reviewer: AuthenticatedReviewer, required_role: str) -> bool:
+    """Whether `reviewer` may approve or reject an approval needing `required_role`.
 
     A senior reviewer may decide anything. A standard reviewer may not decide senior-only
     approvals at all, so those stay queued for a senior reviewer. The database CHECK on
@@ -53,7 +53,12 @@ def ensure_can_decide(reviewer: AuthenticatedReviewer, required_role: str) -> No
     """
     if required_role not in REVIEWER_ROLES:
         raise ValueError(f"unknown required role {required_role!r}")
-    if required_role == "senior_reviewer" and reviewer.role != "senior_reviewer":
+    return required_role != "senior_reviewer" or reviewer.role == "senior_reviewer"
+
+
+def ensure_can_decide(reviewer: AuthenticatedReviewer, required_role: str) -> None:
+    """Raise 403 unless `reviewer` may decide an approval needing `required_role`."""
+    if not can_decide(reviewer, required_role):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Senior reviewer approval required"
         )

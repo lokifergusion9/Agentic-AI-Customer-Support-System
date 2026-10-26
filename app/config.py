@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     # Per-request timeout for calls to the providers above.
     provider_timeout_seconds: float = 5.0
 
+    # One store, one currency (Q6); amounts are in minor units (paise).
+    store_currency: str = "INR"
+    # A pending approval expires after this long and must be requested again (Q6).
+    approval_expiry_minutes: int = 60
+
 
 @lru_cache
 def get_settings() -> Settings:

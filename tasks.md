@@ -150,7 +150,7 @@ The reference interaction the system must handle end to end (PDF §1):
   { "success": false, "error_code": "RETURN_NOT_RECEIVED", "retryable": false, "message": "The return has not been marked as received." }
   ```
 - [x] **W1.14 — Deterministic refund eligibility** (§6, §16). Pure code that decides *eligible / already processing / blocked*. It covers the return-received check, the inspection status, and the refundable balance (paid amount minus successful refunds minus pending reservations), all in minor units.
-- [ ] **W1.15 — Manual resolution path** (§16). Through the APIs and services alone (no LLM):
+- [x] **W1.15 — Manual resolution path** (§16). Through the APIs and services alone (no LLM):
   1. create a ticket
   2. check eligibility
   3. create a proposal
@@ -159,6 +159,8 @@ The reference interaction the system must handle end to end (PDF §1):
   6. update the ticket
 
   Write this as an integration test in `tests/integration/`.
+  **Done (2026-10-26):** `tests/integration/test_manual_resolution.py`. Step 6 updates the local
+  `tickets` record; the helpdesk sync through the mock ticketing API stays in W3.14.
 
 **Gate check:** W1.15 passes for a sample refund ticket and a sample order-status ticket.
 

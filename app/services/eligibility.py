@@ -244,7 +244,7 @@ def check_refund_eligibility(
     order = db.execute(
         text(
             "SELECT o.delivered_at, o.paid_amount_minor, "
-            "(SELECT COALESCE(SUM(i.paid_amount_minor), 0) "
+            "(SELECT CAST(COALESCE(SUM(i.paid_amount_minor), 0) AS bigint) "
             f" FROM {SCHEMA}.order_items i WHERE i.order_id = o.id) AS items_total_minor, "
             "r.status AS return_status, r.requested_at, r.received_at, r.inspection_status "
             f"FROM {SCHEMA}.orders o LEFT JOIN {SCHEMA}.returns r ON r.order_id = o.id "

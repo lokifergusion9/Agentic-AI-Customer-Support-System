@@ -15,7 +15,6 @@ source of truth. The mocks receive it through their reset endpoints (W1.8-W1.10)
 """
 
 import argparse
-import hashlib
 import json
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
@@ -26,6 +25,7 @@ from sqlalchemy import Connection, create_engine, text
 
 from app.config import get_settings
 from app.db import SCHEMA
+from app.services.proposals import payload_hash
 
 IST = timezone(timedelta(hours=5, minutes=30))
 CURRENCY = "INR"
@@ -284,12 +284,6 @@ def scenarios(today: date) -> list[Scenario]:
             notes=["Customer wants to return only the lens: out of scope."],
         ),
     ]
-
-
-def payload_hash(payload: dict[str, Any]) -> str:
-    """SHA-256 of the canonical JSON form of a proposal payload."""
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def shipment(scenario: Scenario) -> Shipment:

@@ -88,6 +88,13 @@ def test_every_scenario_is_covered() -> None:
     assert {case[0] for case in CASES} == set(OWNERS)
 
 
+def test_amounts_are_plain_integers(db: Session, payments: ProviderClient) -> None:
+    # SUM() in PostgreSQL returns numeric; a Decimal amount would break JSON payloads.
+    result = check(db, payments, "ord_1001")
+    for amount in (result.amount_minor, result.max_refund_minor, result.refundable_balance_minor):
+        assert type(amount) is int
+
+
 def test_reference_refund(db: Session, payments: ProviderClient) -> None:
     result = check(db, payments, "ord_1001")
     assert (result.amount_minor, result.max_refund_minor, result.reviewer_role) == (
