@@ -133,12 +133,14 @@ The reference interaction the system must handle end to end (PDF §1):
   - [x] Fault injection: errors, delayed results, and *"accept the refund but time out before responding"*.
 - [x] **W1.9 — Mock shipping API** (§5). Shipment status for order-status complaints, with error and delay injection.
 - [x] **W1.10 — Mock ticketing API** (§5). Ticket status and notes updates, with failure injection so the *"refund succeeds, ticket update fails"* case can be tested. Lives in `mock_services/ticketing/` (Q1 decided).
-- [ ] **W1.11 — Mock order API** (§16). Week 1 lists *"mock order, shipping, and payment APIs"*. Orders are read through a service layer over the seeded tables, or a thin mock over them.
+- [x] **W1.11 — Mock order API** (§16). Week 1 lists *"mock order, shipping, and payment APIs"*. Orders are read through a service layer over the seeded tables, or a thin mock over them. **Decided (2026-10-26): service layer** (`app/services/orders.py`): `get_order` and `list_orders` (the customer's own orders, newest first, for the missing-order question in W2.13).
 
 ### Deterministic business logic
 
 - [ ] **W1.12 — Read services** (§8). Each one checks ownership **inside the service**. An order ID supplied by a customer or the model does not grant access. Each returns typed, structured results:
   - `get_order(order_id)`
+  - `get_shipment_status(order_id)` (added 2026-10-26: order-status cases need the shipment;
+    ownership is checked in the database before the shipping API is called)
   - `get_return_status(order_id)`
   - `get_payment_status(order_id)`
   - `get_refund_status(operation_id)`
@@ -186,7 +188,7 @@ The reference interaction the system must handle end to end (PDF §1):
 ### Typed tools
 
 - [ ] **W2.4 — Wrap the services as narrow, typed tools** (§8), with typed inputs and structured outputs.
-  - Read: `get_order(order_id)`, `get_return_status(order_id)`, `get_payment_status(order_id)`, `get_refund_status(operation_id)`, `search_policy(query, policy_filters)`, `get_ticket(ticket_id)`.
+  - Read: `get_order(order_id)`, `list_orders()`, `get_shipment_status(order_id)`, `get_return_status(order_id)`, `get_payment_status(order_id)`, `get_refund_status(operation_id)`, `search_policy(query, policy_filters)`, `get_ticket(ticket_id)`.
   - Write: `create_refund_proposal(order_id, amount_minor, reason)`, `execute_approved_refund(proposal_id)`, `update_ticket(ticket_id, status, note)`.
 - [ ] **W2.5 — Tool safety rules** (§8):
   - [ ] Identity is injected from the authenticated request, never from tool arguments.

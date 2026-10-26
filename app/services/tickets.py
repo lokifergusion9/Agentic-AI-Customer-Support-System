@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.auth.customer import AuthenticatedCustomer
 from app.db import SCHEMA
 from app.schemas.tickets import TicketCreate, TicketResponse
-from app.services.errors import ServiceFailure
+from app.services.orders import order_not_found
 
 
 def new_ticket_id() -> str:
@@ -31,7 +31,7 @@ def create_ticket(
         if owned is None:
             # Same failure whether the order is missing or someone else's, so order IDs
             # cannot be probed.
-            raise ServiceFailure("ORDER_NOT_FOUND", "No order with this ID was found.")
+            raise order_not_found()
 
     ticket = db.execute(
         text(
