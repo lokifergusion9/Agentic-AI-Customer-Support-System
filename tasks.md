@@ -120,10 +120,10 @@ The reference interaction the system must handle end to end (PDF §1):
 
 - [x] **W1.5 — Customer authentication** (§5, §8). Customer identity is derived from the authenticated request and mapped through `customers.external_auth_subject`. Nothing downstream accepts a customer ID from the request body or from the model.
 - [x] **W1.6 — Reviewer authentication and authorization** (§11). Add a separate reviewer role and permission check, used later by the approval endpoints.
-- [ ] **W1.7 — Ticket endpoints** (§13):
-  - [ ] `POST /tickets`: create a customer support ticket (ownership-checked `order_id`).
-  - [ ] `GET /health`: check application health.
-  - [ ] Authorization is checked on every endpoint, with input and response validation.
+- [x] **W1.7 — Ticket endpoints** (§13):
+  - [x] `POST /tickets`: create a customer support ticket (ownership-checked `order_id`).
+  - [x] `GET /health`: check application health.
+  - [x] Authorization is checked on every endpoint, with input and response validation.
 
 ### Mock external services
 

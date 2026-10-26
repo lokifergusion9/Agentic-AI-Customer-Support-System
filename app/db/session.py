@@ -11,7 +11,10 @@ from app.config import get_settings
 
 @lru_cache
 def get_engine() -> Engine:
-    return create_engine(get_settings().database_url, pool_pre_ping=True)
+    # A short connect timeout so /health reports a down database instead of hanging.
+    return create_engine(
+        get_settings().database_url, pool_pre_ping=True, connect_args={"connect_timeout": 5}
+    )
 
 
 def get_db() -> Iterator[Session]:

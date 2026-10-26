@@ -63,6 +63,7 @@ Useful commands:
 ```bash
 uv run alembic upgrade head    # create or update the database schema
 uv run alembic downgrade base  # remove the schema (keeps the database)
+uv run uvicorn app.main:app --reload  # run the API on http://localhost:8000 (GET /health)
 uv run pytest                  # run the tests (integration tests need PostgreSQL running)
 uv run ruff check .            # lint
 docker compose down            # stop containers (data is kept)
