@@ -209,13 +209,15 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
 
 ### Typed tools
 
-- [ ] **W2.4 — Wrap the services as narrow, typed tools** (§8), with typed inputs and structured outputs.
+- [x] **W2.4 — Wrap the services as narrow, typed tools** (§8), with typed inputs and structured outputs.
   - Read: `get_order(order_id)`, `list_orders()`, `get_shipment_status(order_id)`, `get_return_status(order_id)`, `get_payment_status(order_id)`, `get_refund_status(operation_id)`, `search_policy(query, policy_filters)`, `get_ticket(ticket_id)`.
   - Write: `create_refund_proposal(order_id, amount_minor, reason)`, `execute_approved_refund(proposal_id)`, `update_ticket(ticket_id, status, note)`.
-- [ ] **W2.5 — Tool safety rules** (§8):
-  - [ ] Identity is injected from the authenticated request, never from tool arguments.
-  - [ ] Privileged parameters stay under server control. The model never supplies reviewer identity, approval status or payment credentials.
-  - [ ] `create_refund_proposal` **never issues money**. Proposal and execution stay separate.
+
+  **Done (2026-10-27):** `app/tools/registry.py` (one Pydantic args model per tool), `app/tools/gateway.py` (E§12: record the attempt → allowlist → validate → run with server-side context → `tool_finished` / `tool_rejected`; structured results, never exceptions). `create_refund_proposal` also takes `evidence_refs` (W2.7 schema). Execute tools (`execute_approved_refund`, `update_ticket`) are run by workflow code only and are never offered to the model.
+- [x] **W2.5 — Tool safety rules** (§8):
+  - [x] Identity is injected from the authenticated request, never from tool arguments (`ToolContext`; every args model forbids extra fields, so a `customer_id` is rejected).
+  - [x] Privileged parameters stay under server control. The model never supplies reviewer identity, approval status or payment credentials.
+  - [x] `create_refund_proposal` **never issues money**. Proposal and execution stay separate. It is refused (`NOT_ELIGIBLE`, `AMOUNT_MISMATCH`) unless the eligibility code allows that order and amount.
 
 ### Workflow state and graph
 
