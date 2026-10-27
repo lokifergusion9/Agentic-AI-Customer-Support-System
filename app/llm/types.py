@@ -63,13 +63,27 @@ class ToolSchema:
 
 
 class ModelError(Exception):
-    """A failed model request. Retryable covers rate limits (429), 5xx and timeouts."""
+    """A failed model request. Retryable covers rate limits (429), 5xx and timeouts.
 
-    def __init__(self, code: str, message: str, *, retryable: bool) -> None:
+    `retry_after` is the wait the provider asked for, in seconds, when it said; `detail` names
+    what failed, e.g. the exhausted quota (per minute or per day).
+    """
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        retryable: bool,
+        retry_after: float | None = None,
+        detail: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
         self.retryable = retryable
+        self.retry_after = retry_after
+        self.detail = detail
 
 
 class ModelProvider(Protocol):

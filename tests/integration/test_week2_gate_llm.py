@@ -71,7 +71,15 @@ def test_headphones_refund_with_the_real_model(db: Session, architecture: str) -
         ticket = create_ticket(db, ALICE, TicketCreate(message=HEADPHONES, order_id="ord_1001"))
         run = start_resolution(db, ALICE, ticket.id, services)
 
-    assert run.status == "waiting_for_approval", run.output
+    problems = db.execute(
+        text(
+            "SELECT event_type, redacted_payload FROM support.audit_events WHERE run_id = :r "
+            "AND event_type IN ('run_halted', 'model_output_invalid', 'proposal_validated', "
+            "'tool_rejected') ORDER BY id"
+        ),
+        {"r": run.id},
+    ).all()
+    assert run.status == "waiting_for_approval", (run.output, [tuple(p) for p in problems])
     proposal = db.execute(
         text("SELECT payload FROM support.action_proposals WHERE id = :p"),
         {"p": run.output["proposal_id"]},

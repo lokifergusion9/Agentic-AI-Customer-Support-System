@@ -65,12 +65,37 @@ class GeminiProvider:
             )
         except errors.APIError as exc:
             code = int(exc.code or 0)
+            retry_after, quota = rate_limit_details(exc.details)
             raise ModelError(
-                f"HTTP_{code}", str(exc.message or exc), retryable=code == 429 or code >= 500
+                f"HTTP_{code}",
+                str(exc.message or exc),
+                retryable=code == 429 or code >= 500,
+                retry_after=retry_after,
+                detail=quota,
             ) from None
         except (TimeoutError, OSError) as exc:
             raise ModelError("MODEL_TIMEOUT", str(exc), retryable=True) from None
         return from_response(response)
+
+
+def rate_limit_details(details: Any) -> tuple[float | None, str | None]:
+    """The retry delay and the exhausted quota from a 429 body (google.rpc RetryInfo and
+    QuotaFailure), e.g. (37.0, "GenerateRequestsPerMinutePerProjectPerModel-FreeTier")."""
+    error = details.get("error", details) if isinstance(details, dict) else {}
+    retry_after: float | None = None
+    quota: str | None = None
+    for item in error.get("details", []) if isinstance(error, dict) else []:
+        kind = str(item.get("@type", ""))
+        if kind.endswith("RetryInfo"):
+            delay = str(item.get("retryDelay", "")).removesuffix("s")
+            try:
+                retry_after = float(delay)
+            except ValueError:
+                pass
+        elif kind.endswith("QuotaFailure"):
+            violations = item.get("violations") or [{}]
+            quota = violations[0].get("quotaId") or violations[0].get("quotaMetric")
+    return retry_after, quota
 
 
 def to_contents(messages: list[Message]) -> list[types.Content]:

@@ -4,7 +4,7 @@ import pytest
 from google.genai import types
 
 from app.llm.calls import BudgetExceeded, RunBudget, call_model
-from app.llm.gemini import from_response, to_contents
+from app.llm.gemini import from_response, rate_limit_details, to_contents
 from app.llm.types import Message, ModelError, ToolCall, Usage
 from tests.fakes import ListRecorder, ScriptedModel, reply, sequence
 
@@ -53,6 +53,68 @@ def test_rate_limit_is_retried_and_every_attempt_recorded() -> None:
     assert outcomes == [(1, "error", "HTTP_429"), (2, "ok", None)]
     assert recorder.events[0][2]["input_tokens"] is None
     assert budget.steps_used == 2
+
+
+def test_provider_retry_delay_is_honored() -> None:
+    recorder, budget = ListRecorder(), RunBudget(max_steps=5, max_tokens=1000)
+    waits: list[float] = []
+    model = ScriptedModel(
+        sequence(
+            ModelError(
+                "HTTP_429",
+                "quota",
+                retryable=True,
+                retry_after=37.0,
+                detail="GenerateRequestsPerMinutePerProjectPerModel-FreeTier",
+            ),
+            reply("ok"),
+        )
+    )
+
+    call_model(
+        model,
+        recorder=recorder,
+        budget=budget,
+        actor="agent:test",  # type: ignore[arg-type]
+        prompt_label="test_v1",
+        system="s",
+        messages=[Message("user", "hi")],
+        sleep=waits.append,
+    )
+
+    assert waits == [37.0]
+    failed = recorder.events[0][2]
+    assert failed["retry_after_s"] == 37.0
+    assert failed["error_detail"].startswith("GenerateRequestsPerMinute")
+
+
+def test_a_wait_longer_than_a_minute_ends_the_call() -> None:
+    model = ScriptedModel(
+        sequence(ModelError("HTTP_429", "daily quota", retryable=True, retry_after=3600.0))
+    )
+    with pytest.raises(ModelError, match="daily quota"):
+        call(model, ListRecorder(), RunBudget(max_steps=5, max_tokens=1000))
+    assert len(model.calls) == 1
+
+
+def test_rate_limit_details_are_read_from_the_error_body() -> None:
+    body = {
+        "error": {
+            "code": 429,
+            "status": "RESOURCE_EXHAUSTED",
+            "details": [
+                {
+                    "@type": "type.googleapis.com/google.rpc.QuotaFailure",
+                    "violations": [
+                        {"quotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier"}
+                    ],
+                },
+                {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": "12s"},
+            ],
+        }
+    }
+    assert rate_limit_details(body) == (12.0, "GenerateRequestsPerDayPerProjectPerModel-FreeTier")
+    assert rate_limit_details(None) == (None, None)
 
 
 def test_retries_stop_at_the_limit() -> None:

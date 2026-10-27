@@ -21,6 +21,8 @@ from sqlalchemy.orm import Session
 from app.llm.types import Message, ModelError, ModelProvider, ModelResponse, ToolSchema
 from app.services.audit import record_event
 
+MAX_RETRY_WAIT_SECONDS = 60.0
+
 
 class BudgetExceeded(Exception):
     def __init__(self, limit: str, message: str) -> None:
@@ -125,15 +127,20 @@ def call_model(
                     **base,
                     "outcome": "error",
                     "error_code": error.code,
+                    "error_detail": error.detail,
                     "retryable": error.retryable,
+                    "retry_after_s": error.retry_after,
                     "latency_ms": elapsed_ms(started),
                     # A failed request may still be billed; the provider did not say.
                     "input_tokens": None,
                     "output_tokens": None,
                 },
             )
-            if error.retryable and attempt <= max_retries:
-                sleep(min(2 ** (attempt - 1), 8))
+            # Wait as long as the provider asks (a per-minute quota resets within a minute);
+            # a longer wait, such as an exhausted daily quota, ends the run instead (Q4).
+            delay = error.retry_after if error.retry_after is not None else 2 ** (attempt - 1)
+            if error.retryable and attempt <= max_retries and delay <= MAX_RETRY_WAIT_SECONDS:
+                sleep(delay)
                 continue
             raise
         budget.add_usage(response, messages)
