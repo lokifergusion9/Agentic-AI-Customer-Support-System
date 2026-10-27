@@ -194,15 +194,18 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
   4. Store chunks and metadata in `policy_documents` / `policy_chunks`. pgvector is optional (§5).
 
   **Done (2026-10-27):** `app/policies/documents.py` parses front matter and `## Section N` headings (one chunk per section, ID = citation); `app/policies/embeddings.py` wraps the local model (loaded from cache when present); re-runs skip unchanged documents by content hash and replace changed ones. Run `uv run python -m scripts.ingest_policies`. Tests use a deterministic `tests/fakes.py` embedder; real-model tests are opt-in with `pytest -m embedding_model`.
-- [ ] **W2.2 — `search_policy(query, policy_filters)`** (§8, §9):
-  - [ ] Retrieve passages using the complaint **plus the relevant order facts**.
-  - [ ] Filter to the policy version that applies (effective dates vs. order or delivery date).
-  - [ ] Preserve document and section references, and return citations such as `refund_policy_v1:section_3`.
-  - [ ] Report when evidence is missing or conflicting.
-  - [ ] Escalate if no applicable policy can be established.
-  - [ ] Treat instructions embedded in retrieved text as **untrusted content**.
-  - [ ] Never use a similarity score as proof that a refund is valid. Financial conditions are enforced in code.
-- [ ] **W2.3 — Retrieval routing rule** (§9). Policy questions use retrieval, for example *"What is the return window?"*. Current facts use APIs or SQL, for example *"When was this order delivered?"* (order API) and *"Has this payment already been refunded?"* (payment API).
+- [x] **W2.2 — `search_policy(query, policy_filters)`** (§8, §9):
+  - [x] Retrieve passages using the complaint **plus the relevant order facts** (`build_policy_query`).
+  - [x] Filter to the policy version that applies (effective dates vs. order or delivery date): `PolicyFilters.effective_on`.
+  - [x] Preserve document and section references, and return citations such as `refund_policy_v1:section_3`.
+  - [x] Report when evidence is missing or conflicting: `no_applicable_policy`, `no_relevant_passage` (below `MIN_RELEVANCE`), `conflicting` (two versions of one policy without a date).
+  - [x] Escalate if no applicable policy can be established (`escalate` flag on every non-`found` result).
+  - [x] Treat instructions embedded in retrieved text as **untrusted content**: instruction-like passages are flagged (`contains_instructions`), and the audit trail records citations only.
+  - [x] Never use a similarity score as proof that a refund is valid. Financial conditions are enforced in code. (`relevance` is for ranking only; eligibility stays in W1.14.)
+
+  **Done (2026-10-27):** `app/policies/search.py`. Real-model retrieval quality is checked by `tests/integration/test_policy_search_model.py` (`-m embedding_model`).
+- [x] **W2.3 — Retrieval routing rule** (§9). Policy questions use retrieval, for example *"What is the return window?"*. Current facts use APIs or SQL, for example *"When was this order delivered?"* (order API) and *"Has this payment already been refunded?"* (payment API).
+  **Done (2026-10-27):** stated in the tool descriptions the model reads (`app/tools/registry.py`) and in the agent prompts (W2.9); `search_policy` returns policy text only, never customer facts.
 
 ### Typed tools
 
