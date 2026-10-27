@@ -5,8 +5,9 @@ request (the customer, the run, the ticket) and hands it to every tool; the mode
 the narrow arguments in each tool's Pydantic model, which forbids anything extra.
 """
 
+import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Literal
 
@@ -30,6 +31,9 @@ class ToolContext:
     embedder: Embedder
     # Store date for eligibility decisions; None means today (tests and evals pin it).
     today: date | None = None
+    # Shared with the run's RunRecorder: agents running in parallel threads (W2.10) take
+    # turns on the one database session.
+    lock: threading.RLock = field(default_factory=threading.RLock)
 
     @property
     def actor(self) -> str:

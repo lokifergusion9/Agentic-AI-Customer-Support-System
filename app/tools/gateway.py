@@ -58,6 +58,12 @@ class ToolGateway:
     def execute(
         self, name: str, raw_arguments: dict[str, Any] | str | None, *, call_id: str
     ) -> dict[str, Any]:
+        with self.ctx.lock:
+            return self._execute(name, raw_arguments, call_id)
+
+    def _execute(
+        self, name: str, raw_arguments: dict[str, Any] | str | None, call_id: str
+    ) -> dict[str, Any]:
         self.calls += 1
         started = time.monotonic()
         arguments = raw_arguments if raw_arguments is not None else {}

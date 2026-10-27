@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,6 +26,22 @@ class Settings(BaseSettings):
     mock_ticketing_api_key: str = "mock-ticketing-local-key"
     # Per-request timeout for calls to the providers above.
     provider_timeout_seconds: float = 5.0
+
+    # Model configuration (Q4, W2.16). The Gemini model ID is pinned in .env; the key stays
+    # on the server. Architecture and prompt version are what the W5 comparisons vary.
+    llm_provider: str = "gemini"
+    llm_model: str = ""
+    llm_api_key: SecretStr = SecretStr("")
+    llm_temperature: float = 0.0
+    llm_max_output_tokens: int = 2048
+    llm_timeout_seconds: float = 60.0
+    # Retries per model request for rate limits (429), 5xx and timeouts, with backoff.
+    llm_max_retries: int = 2
+    agent_architecture: str = "specialist"
+    agent_prompt_version: str = "v1"
+    # Hard limits per run (HLD 5b, W2.15): model calls plus tool calls, and tokens.
+    max_workflow_steps: int = 25
+    max_run_tokens: int = 50000
 
     # Local embedding model for policy retrieval (Q3). The dimensions must match the
     # policy_chunks.embedding vector(384) column.
