@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     # Per-request timeout for calls to the providers above.
     provider_timeout_seconds: float = 5.0
 
+    # Local embedding model for policy retrieval (Q3). The dimensions must match the
+    # policy_chunks.embedding vector(384) column.
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_dimensions: int = 384
+
     # One store, one currency (Q6); amounts are in minor units (paise).
     store_currency: str = "INR"
     # A pending approval expires after this long and must be requested again (Q6).

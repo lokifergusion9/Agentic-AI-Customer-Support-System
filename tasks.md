@@ -187,11 +187,13 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
 
 ### RAG for support policies
 
-- [ ] **W2.1 — Policy ingestion pipeline** (§9). In `scripts/ingest_policies.py`:
+- [x] **W2.1 — Policy ingestion pipeline** (§9). In `scripts/ingest_policies.py`:
   1. Load the policy docs from W1.1, with their document IDs, versions and effective dates.
   2. Split them into meaningful sections.
   3. Generate embeddings.
   4. Store chunks and metadata in `policy_documents` / `policy_chunks`. pgvector is optional (§5).
+
+  **Done (2026-10-27):** `app/policies/documents.py` parses front matter and `## Section N` headings (one chunk per section, ID = citation); `app/policies/embeddings.py` wraps the local model (loaded from cache when present); re-runs skip unchanged documents by content hash and replace changed ones. Run `uv run python -m scripts.ingest_policies`. Tests use a deterministic `tests/fakes.py` embedder; real-model tests are opt-in with `pytest -m embedding_model`.
 - [ ] **W2.2 — `search_policy(query, policy_filters)`** (§8, §9):
   - [ ] Retrieve passages using the complaint **plus the relevant order facts**.
   - [ ] Filter to the policy version that applies (effective dates vs. order or delivery date).
