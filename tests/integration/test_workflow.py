@@ -58,16 +58,23 @@ class Scenario:
 
     outputs: dict[str, dict[str, Any] | str]
     plans: dict[str, Plan | Callable[[FakeCall], Plan]] = field(default_factory=dict)
+    # Answer the tool loop's last turn with the JSON itself, as real models usually do.
+    inline_json: bool = False
 
     def __call__(self, call: FakeCall):
         agent = agent_of(call)
         if call.response_schema is not None:
-            output = self.outputs[agent]
-            return reply(output) if isinstance(output, str) else json_reply(output)
+            return self.output(agent)
         plan = self.plans.get(agent, [])
         plan = plan(call) if callable(plan) else plan
         turns = sum(1 for m in call.messages if m.role == "assistant")
-        return reply(tool_calls=plan[turns]) if turns < len(plan) else reply("I have the facts.")
+        if turns < len(plan):
+            return reply(tool_calls=plan[turns])
+        return self.output(agent) if self.inline_json else reply("I have the facts.")
+
+    def output(self, agent: str):
+        output = self.outputs[agent]
+        return reply(output) if isinstance(output, str) else json_reply(output)
 
 
 # --- Fixtures --------------------------------------------------------------------------
@@ -259,6 +266,24 @@ def test_single_agent_baseline_reaches_the_same_proposal(
 
     assert run.status == "waiting_for_approval"
     assert {agent_of(c) for c in services.provider.calls} == {"classifier", "single"}
+
+
+def test_json_in_the_last_tool_turn_saves_the_separate_structured_calls(
+    db: Session, make_services, providers
+) -> None:
+    payments, _ = providers
+    scenario = headphones_scenario(*refund_ids(db, payments))
+    fallback = make_services(scenario)
+    inline = make_services(replace(scenario, inline_json=True))
+
+    slow = start_resolution(db, ALICE, open_ticket(db, HEADPHONES, "ord_1001"), fallback)
+    fast = start_resolution(db, ALICE, open_ticket(db, HEADPHONES, "ord_1001"), inline)
+
+    assert slow.status == fast.status == "waiting_for_approval"
+    # classifier 1 + investigation 3 + policy 3 + resolution 1, versus 1 + 2 + 2 + 1.
+    assert (len(fallback.provider.calls), len(inline.provider.calls)) == (8, 6)
+    first_turn = next(c for c in inline.provider.calls if agent_of(c) == "investigation")
+    assert "reply with only a JSON object matching this schema" in first_turn.messages[0].text
 
 
 def test_policy_version_is_chosen_after_facts_for_refunds(

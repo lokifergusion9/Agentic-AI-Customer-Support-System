@@ -149,6 +149,52 @@ def structured_output[M: BaseModel](
     raise InvalidModelOutput(schema.__name__, problems)
 
 
+def run_agent_to_json[M: BaseModel](
+    rt: AgentRuntime,
+    *,
+    actor: str,
+    prompt: Prompt,
+    brief: str,
+    allowed: frozenset[str],
+    schema: type[M],
+    instruction: str,
+    max_turns: int = MAX_AGENT_TURNS,
+) -> tuple[M, LoopResult]:
+    """A tool loop whose last turn is the agent's JSON output.
+
+    The schema is in the first message, so a model that stops calling tools usually answers
+    with valid JSON right away, saving the separate structured call (about a quarter of a
+    specialist run's model calls on the free tier). Anything else falls back to
+    `structured_output`, with its validation and repair.
+    """
+    first = (
+        f"{brief}\n\nWhen you have finished calling tools, reply with only a JSON object "
+        f"matching this schema:\n{as_data(schema.model_json_schema())}"
+    )
+    loop = run_tool_loop(
+        rt,
+        actor=actor,
+        prompt=prompt,
+        messages=[Message("user", first)],
+        allowed=allowed,
+        max_turns=max_turns,
+    )
+    if loop.stop_reason == "model_final":
+        try:
+            return schema.model_validate_json(strip_code_fence(loop.final_text)), loop
+        except ValidationError:
+            pass
+    output = structured_output(
+        rt,
+        actor=actor,
+        prompt=prompt,
+        messages=loop.messages,
+        schema=schema,
+        instruction=instruction,
+    )
+    return output, loop
+
+
 def strip_code_fence(text: str) -> str:
     match = re.fullmatch(r"\s*```(?:json)?\s*(.*?)\s*```\s*", text, re.DOTALL)
     return match.group(1) if match else text

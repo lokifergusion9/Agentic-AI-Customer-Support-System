@@ -15,8 +15,7 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
-from app.agents.loop import AgentRuntime, ToolRecord, as_data, run_tool_loop, structured_output
-from app.llm.types import Message
+from app.agents.loop import AgentRuntime, ToolRecord, as_data, run_agent_to_json, structured_output
 from app.schemas.agents import Classification, EvidenceSummary, PolicyFinding, ResolutionProposal
 from app.tools.registry import READ_TOOLS
 
@@ -63,19 +62,12 @@ def classify(rt: AgentRuntime, state: dict[str, Any]) -> Classification:
 
 
 def investigate(rt: AgentRuntime, state: dict[str, Any]) -> AgentOutput[EvidenceSummary]:
-    prompt = rt.config.prompt("investigation")
-    loop = run_tool_loop(
+    summary, loop = run_agent_to_json(
         rt,
         actor="agent:investigation",
-        prompt=prompt,
-        messages=[Message("user", case_brief(state, rt.ctx.today))],
+        prompt=rt.config.prompt("investigation"),
+        brief=case_brief(state, rt.ctx.today),
         allowed=INVESTIGATION_TOOLS,
-    )
-    summary = structured_output(
-        rt,
-        actor="agent:investigation",
-        prompt=prompt,
-        messages=loop.messages,
         schema=EvidenceSummary,
         instruction=SUMMARIZE,
     )
@@ -85,26 +77,19 @@ def investigate(rt: AgentRuntime, state: dict[str, Any]) -> AgentOutput[Evidence
 def find_policy(
     rt: AgentRuntime, state: dict[str, Any], *, facts: dict[str, Any] | None = None
 ) -> AgentOutput[PolicyFinding]:
-    prompt = rt.config.prompt("policy")
     brief = case_brief(state, rt.ctx.today)
     if facts:
         # Facts gathered first when the policy version depends on them (W2.10).
         brief += f"\nVerified facts: {as_data(facts)}"
-    loop = run_tool_loop(
+    finding, loop = run_agent_to_json(
         rt,
         actor="agent:policy",
-        prompt=prompt,
-        messages=[Message("user", brief)],
+        prompt=rt.config.prompt("policy"),
+        brief=brief,
         allowed=POLICY_TOOLS,
-        max_turns=4,
-    )
-    finding = structured_output(
-        rt,
-        actor="agent:policy",
-        prompt=prompt,
-        messages=loop.messages,
         schema=PolicyFinding,
         instruction=SUMMARIZE,
+        max_turns=4,
     )
     return AgentOutput(finding, loop.tool_records)
 
@@ -132,22 +117,15 @@ def resolve(rt: AgentRuntime, state: dict[str, Any]) -> ResolutionProposal:
 
 def single_agent(rt: AgentRuntime, state: dict[str, Any]) -> AgentOutput[ResolutionProposal]:
     """The W2.9 baseline: one agent gathers facts and policy, then proposes."""
-    prompt = rt.config.prompt("single_agent")
-    loop = run_tool_loop(
+    proposal, loop = run_agent_to_json(
         rt,
         actor="agent:single",
-        prompt=prompt,
-        messages=[Message("user", case_brief(state, rt.ctx.today))],
+        prompt=rt.config.prompt("single_agent"),
+        brief=case_brief(state, rt.ctx.today),
         allowed=SINGLE_AGENT_TOOLS,
-        max_turns=10,
-    )
-    proposal = structured_output(
-        rt,
-        actor="agent:single",
-        prompt=prompt,
-        messages=loop.messages,
         schema=ResolutionProposal,
         instruction="Stop calling tools now and reply with your proposal as JSON matching "
         "the schema.",
+        max_turns=10,
     )
     return AgentOutput(proposal, loop.tool_records)
