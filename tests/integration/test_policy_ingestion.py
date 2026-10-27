@@ -12,9 +12,7 @@ from tests.fakes import FakeEmbedder
 
 
 def chunk_ids(conn: Connection) -> list[str]:
-    return list(
-        conn.execute(text(f"SELECT id FROM {SCHEMA}.policy_chunks ORDER BY id")).scalars()
-    )
+    return list(conn.execute(text(f"SELECT id FROM {SCHEMA}.policy_chunks ORDER BY id")).scalars())
 
 
 def test_ingest_stores_every_section_with_its_citation(conn: Connection) -> None:

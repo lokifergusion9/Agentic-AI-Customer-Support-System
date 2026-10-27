@@ -72,7 +72,9 @@ class ToolGateway:
 
         if spec is None or name not in self.allowed:
             return self.reject(
-                name, call_id, started,
+                name,
+                call_id,
+                started,
                 ServiceFailure("TOOL_NOT_ALLOWED", f"The tool {name!r} is not available here."),
             )
         try:
@@ -81,7 +83,9 @@ class ToolGateway:
             args = spec.args_model.model_validate(arguments)
         except (ValueError, ValidationError) as exc:
             return self.reject(
-                name, call_id, started,
+                name,
+                call_id,
+                started,
                 ServiceFailure("INVALID_ARGUMENTS", validation_summary(exc)),
             )
 
@@ -93,13 +97,22 @@ class ToolGateway:
             # A provider timeout or outage: the tool ran but did not get an answer.
             self.ctx.db.rollback()
             self.record(
-                "tool_finished", name, call_id, status="error", error_code=error.error_code,
-                retryable=True, duration_ms=elapsed_ms(started),
+                "tool_finished",
+                name,
+                call_id,
+                status="error",
+                error_code=error.error_code,
+                retryable=True,
+                duration_ms=elapsed_ms(started),
             )
             return failure(error)
 
         self.record(
-            "tool_finished", name, call_id, status="ok", duration_ms=elapsed_ms(started),
+            "tool_finished",
+            name,
+            call_id,
+            status="ok",
+            duration_ms=elapsed_ms(started),
             **self.result_summary(name, result["data"]),
         )
         return result
@@ -109,7 +122,10 @@ class ToolGateway:
     ) -> dict[str, Any]:
         self.ctx.db.rollback()
         self.record(
-            "tool_rejected", name, call_id, error_code=error.error_code,
+            "tool_rejected",
+            name,
+            call_id,
+            error_code=error.error_code,
             duration_ms=elapsed_ms(started),
         )
         return failure(error)

@@ -37,16 +37,28 @@ def db(conn: Connection) -> Iterator[Session]:
             {"return_status": "received", "inspection_status": "passed"},
             "refund_policy_v1:section_3",
         ),
-        ("How long does the money take to reach my bank after a refund?", None,
-         "refund_policy_v1:section_6"),
+        (
+            "How long does the money take to reach my bank after a refund?",
+            None,
+            "refund_policy_v1:section_6",
+        ),
         ("My new laptop arrived with a cracked screen.", None, "damaged_products_v1"),
-        ("What details do I need to give for a damaged product claim?", None,
-         "damaged_products_v1:section_3"),
+        (
+            "What details do I need to give for a damaged product claim?",
+            None,
+            "damaged_products_v1:section_3",
+        ),
         ("My order is late and still hasn't arrived.", None, "shipping_delays_v1:section_4"),
-        ("The inspection of my returned item failed, what happens now?", None,
-         "return_processing_v1:section_5"),
-        ("A refund of 90,000 rupees, who has to approve it?", None,
-         "human_review_exceptions_v1:section_3"),
+        (
+            "The inspection of my returned item failed, what happens now?",
+            None,
+            "return_processing_v1:section_5",
+        ),
+        (
+            "A refund of 90,000 rupees, who has to approve it?",
+            None,
+            "human_review_exceptions_v1:section_3",
+        ),
     ],
 )
 def test_expected_policy_ranks_at_the_top(

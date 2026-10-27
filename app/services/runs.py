@@ -4,8 +4,10 @@ The LangGraph workflow (W2) drives runs; this module only records them. A ticket
 one unfinished run (enforced by the database).
 """
 
+import json
 import secrets
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -29,9 +31,11 @@ class RunView(BaseModel):
     status: str
     started_at: datetime
     completed_at: datetime | None
+    # Final response, route, category, proposal and citations (W2.14); None while running.
+    output: dict[str, Any] | None = None
 
 
-RUN_COLUMNS = "id, ticket_id, thread_id, status, started_at, completed_at"
+RUN_COLUMNS = "id, ticket_id, thread_id, status, started_at, completed_at, output"
 
 
 def run_not_found() -> ServiceFailure:
@@ -81,6 +85,14 @@ def get_run(db: Session, customer: AuthenticatedCustomer, run_id: str) -> RunVie
     if run is None:
         raise run_not_found()
     return RunView.model_validate(run._mapping)
+
+
+def set_run_output(db: Session, run_id: str, output: dict[str, Any]) -> None:
+    """Store the run's latest result in the caller's transaction."""
+    db.execute(
+        text(f"UPDATE {SCHEMA}.workflow_runs SET output = CAST(:output AS jsonb) WHERE id = :run"),
+        {"run": run_id, "output": json.dumps(output, default=str)},
+    )
 
 
 def set_run_status(db: Session, run_id: str, status: str, *, actor: str) -> RunView:

@@ -107,7 +107,11 @@ def is_tool_turn(content: types.Content) -> bool:
 
 def from_response(response: types.GenerateContentResponse) -> ModelResponse:
     candidate = response.candidates[0] if response.candidates else None
-    parts = candidate.content.parts if candidate and candidate.content and candidate.content.parts else []
+    parts = (
+        candidate.content.parts
+        if candidate and candidate.content and candidate.content.parts
+        else []
+    )
     text = "".join(p.text for p in parts if p.text and not p.thought)
     calls = [
         ToolCall(
@@ -130,6 +134,8 @@ def from_response(response: types.GenerateContentResponse) -> ModelResponse:
         tool_calls=calls,
         usage=usage,
         resolved_model=response.model_version,
-        finish_reason=str(candidate.finish_reason) if candidate and candidate.finish_reason else None,
+        finish_reason=str(candidate.finish_reason)
+        if candidate and candidate.finish_reason
+        else None,
         raw=candidate.content if candidate else None,
     )

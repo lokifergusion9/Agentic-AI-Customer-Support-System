@@ -1,0 +1,419 @@
+"""The resolution workflow as a LangGraph graph (W2.9–W2.13, HLD §2).
+
+    classify ─┬─ out of scope ────────────────────────────────────────────► finish_escalate
+              ├─ single architecture ─► single_agent ─┐
+              ├─ refund ─► investigate_then_policy ───┤  (policy version depends on facts)
+              └─ other ─► investigate ∥ policy ───────┤  (independent, run concurrently)
+                                                      ▼
+                       check_missing ─ missing ─► request_clarification ─► await_customer
+                             │                                  (interrupt; resumes at classify)
+                             ▼
+                 resolve (specialists) ─► validate (code) ─┬─► persist_proposal ─► finish_approval
+                                                           ├─► finish_answer
+                                                           ├─► finish_escalate
+                                                           └─► request_clarification
+
+Model nodes propose; every route is decided by code. Side effects never happen in the same node
+as `interrupt()`, because an interrupted node restarts from the top when it resumes (W3.3).
+Week 2 stops at finish_approval: the run waits for a reviewer, and W3 resumes and executes.
+"""
+
+import re
+from collections.abc import Callable
+from typing import Annotated, Any
+
+from langgraph.graph import END, START, StateGraph
+from langgraph.types import interrupt
+
+from app.agents.facts import collect_citations, collect_facts, verified_order
+from app.agents.loop import AgentRuntime, InvalidModelOutput
+from app.agents.specialists import classify, find_policy, investigate, resolve, single_agent
+from app.llm.calls import BudgetExceeded
+from app.llm.types import ModelError
+from app.schemas.agents import ResolutionProposal
+from app.services.orders import list_orders
+from app.services.runs import set_run_output, set_run_status
+from app.tools.gateway import ToolGateway
+from app.workflows.state import WorkflowState
+from app.workflows.validation import validate_proposal
+
+MAX_CLARIFICATION_ROUNDS = 2
+ORDER_ID = re.compile(r"\bord_\d+\b")
+WORKFLOW = "system:workflow"
+
+
+def highest(left: int | None, right: int | None) -> int:
+    return max(left or 0, right or 0)
+
+
+class GraphState(WorkflowState, total=False):
+    # Budget counters survive pauses; parallel nodes report the same shared counter.
+    steps_used: Annotated[int, highest]
+    tokens_used: Annotated[int, highest]
+    halted: bool
+
+
+def build_graph(rt: AgentRuntime) -> StateGraph:
+    ctx = rt.ctx
+
+    def usage() -> dict[str, int]:
+        return {"steps_used": rt.budget.steps_used, "tokens_used": rt.budget.tokens_used}
+
+    def guarded(node: Callable[[GraphState], dict[str, Any]]):
+        """Stop the run cleanly on the W2.15 limits instead of failing it (HLD 5b)."""
+
+        def run(state: GraphState) -> dict[str, Any]:
+            try:
+                update = node(state)
+            except BudgetExceeded as exc:
+                update = halt(exc.limit, {"message": str(exc)})
+            except InvalidModelOutput as exc:
+                update = halt(
+                    "invalid_model_output", {"schema": exc.schema, "problems": exc.problems}
+                )
+            except ModelError as exc:
+                update = halt("model_error", {"code": exc.code, "retryable": exc.retryable})
+            return {**update, **usage()}
+
+        run.__name__ = node.__name__
+        return run
+
+    def halt(reason: str, details: dict[str, Any]) -> dict[str, Any]:
+        rt.recorder.record(WORKFLOW, "run_halted", {"stop_reason": reason, **details})
+        return {
+            "halted": True,
+            "stop_reason": reason,
+            "error_details": details,
+            "route": "escalate",
+        }
+
+    def gateway(actor: str, allowed: set[str]) -> ToolGateway:
+        return ToolGateway(ctx, frozenset(allowed), actor=actor)
+
+    # --- Model nodes -------------------------------------------------------------------
+
+    def classify_node(state: GraphState) -> dict[str, Any]:
+        result = classify(rt, state)
+        # An order ID in the newest message wins (it may answer a clarification question),
+        # then the ticket's order, then one the classifier saw.
+        messages = state.get("customer_messages") or [state["customer_message"]]
+        written = ORDER_ID.findall(messages[-1])
+        order_id = written[-1] if written else (state.get("order_id") or result.order_id)
+        rt.recorder.record(
+            "agent:classifier", "complaint_classified", {"category": result.category}
+        )
+        return {
+            "complaint_category": result.category,
+            "summary": result.summary,
+            "order_id": order_id,
+            # A new classification starts a fresh proposal (e.g. after a clarification).
+            "proposal": None,
+            "evidence": None,
+            "policy_finding": None,
+            "missing_information": [],
+            "route": None,
+        }
+
+    def single_agent_node(state: GraphState) -> dict[str, Any]:
+        out = single_agent(rt, state)
+        return {
+            "verified_facts": collect_facts(out.tool_records),
+            "policy_references": collect_citations(out.tool_records),
+            "proposal": out.output.model_dump(),
+        }
+
+    def investigate_node(state: GraphState) -> dict[str, Any]:
+        out = investigate(rt, state)
+        return {
+            "verified_facts": collect_facts(out.tool_records),
+            "evidence": out.output.model_dump(),
+        }
+
+    def policy_node(state: GraphState) -> dict[str, Any]:
+        out = find_policy(rt, state)
+        return {
+            "policy_references": collect_citations(out.tool_records),
+            "policy_finding": out.output.model_dump(),
+        }
+
+    def investigate_then_policy_node(state: GraphState) -> dict[str, Any]:
+        found = investigate(rt, state)
+        facts = {**(state.get("verified_facts") or {}), **collect_facts(found.tool_records)}
+        policy = find_policy(rt, state, facts=facts)
+        return {
+            "verified_facts": collect_facts(found.tool_records),
+            "evidence": found.output.model_dump(),
+            "policy_references": collect_citations(policy.tool_records),
+            "policy_finding": policy.output.model_dump(),
+        }
+
+    def resolve_node(state: GraphState) -> dict[str, Any]:
+        return {"proposal": resolve(rt, state).model_dump()}
+
+    # --- Code nodes --------------------------------------------------------------------
+
+    def check_missing_node(state: GraphState) -> dict[str, Any]:
+        """W2.13: every supported complaint needs one verified order of this customer."""
+        missing: list[str] = []
+        facts = state.get("verified_facts") or {}
+        order = verified_order(facts, state.get("order_id"))
+        if order is None:
+            missing.append("order_id")
+        evidence = state.get("evidence") or {}
+        missing += [m for m in evidence.get("missing_information", []) if m not in missing]
+        if state.get("complaint_category") == "order_status":
+            # Shipment facts are needed to answer, but a missing shipment is a fact, not a
+            # question for the customer.
+            missing = [m for m in missing if m == "order_id"]
+        update: dict[str, Any] = {"missing_information": missing}
+        if order is not None:
+            update["order_id"] = order["id"]
+        return update
+
+    def validate_node(state: GraphState) -> dict[str, Any]:
+        proposal = ResolutionProposal.model_validate(state["proposal"])
+        with ctx.lock:
+            result = validate_proposal(
+                ctx,
+                proposal,
+                facts=state.get("verified_facts") or {},
+                citations=state.get("policy_references") or [],
+            )
+            ctx.db.rollback()  # the eligibility check only reads
+        rt.recorder.record(
+            WORKFLOW,
+            "proposal_validated",
+            {"action": proposal.action, "route": result.route, "problems": result.problems},
+        )
+        update: dict[str, Any] = {"route": result.route, "validation_problems": result.problems}
+        if result.route == "ask_clarification":
+            update["missing_information"] = proposal.missing_information
+        return update
+
+    def persist_proposal_node(state: GraphState) -> dict[str, Any]:
+        proposal = state["proposal"]
+        result = gateway("agent:resolution", {"create_refund_proposal"}).execute(
+            "create_refund_proposal",
+            {
+                "order_id": proposal["order_id"],
+                "amount_minor": proposal["amount_minor"],
+                "reason": proposal["reason"],
+                "evidence_refs": proposal["evidence_refs"],
+            },
+            call_id="persist_proposal",
+        )
+        if not result["success"]:
+            return {"route": "escalate", "validation_problems": [result["error_code"]]}
+        return {
+            "proposed_action_id": result["data"]["proposal_id"],
+            "approval_id": result["data"]["approval_id"],
+        }
+
+    def request_clarification_node(state: GraphState) -> dict[str, Any]:
+        question = clarification_question(state)
+        finish(
+            state,
+            run_status="waiting_for_customer",
+            ticket_status="awaiting_customer",
+            response=question,
+            route="ask_clarification",
+        )
+        rt.recorder.record(
+            WORKFLOW, "clarification_requested", {"missing": state.get("missing_information")}
+        )
+        return {"final_response": question, "route": "ask_clarification"}
+
+    def await_customer_node(state: GraphState) -> dict[str, Any]:
+        # Nothing else happens here: on resume this node restarts from the top (W3.3).
+        answer = interrupt({"question": state.get("final_response")})
+        return {
+            "customer_messages": [str(answer)],
+            "clarification_rounds": (state.get("clarification_rounds") or 0) + 1,
+            "final_response": None,
+        }
+
+    def finish_answer_node(state: GraphState) -> dict[str, Any]:
+        response = state["proposal"]["customer_message"]
+        finish(
+            state,
+            run_status="completed",
+            ticket_status="resolved",
+            response=response,
+            route="answer_only",
+        )
+        return {"final_response": response}
+
+    def finish_approval_node(state: GraphState) -> dict[str, Any]:
+        proposal = state["proposal"]
+        rupees = proposal["amount_minor"] / 100
+        response = (
+            f"Thank you for your patience. Your refund request for order {proposal['order_id']} "
+            f"(₹{rupees:,.2f}) has been checked against our refund policy and sent to a support "
+            "reviewer for approval. No refund has been issued yet; we will update this ticket "
+            "once the payment provider confirms it."
+        )
+        # The proposal service already moved the run to waiting_for_approval.
+        finish(
+            state,
+            run_status=None,
+            ticket_status="awaiting_approval",
+            response=response,
+            route="request_approval",
+        )
+        return {"final_response": response}
+
+    def finish_escalate_node(state: GraphState) -> dict[str, Any]:
+        response = (
+            "Thank you for contacting us. Your request needs a member of our support team to "
+            "review it, and they will follow up on this ticket."
+        )
+        finish(
+            state,
+            run_status="escalated",
+            ticket_status="escalated",
+            response=response,
+            route="escalate",
+        )
+        return {"final_response": response, "route": "escalate"}
+
+    def finish(
+        state: GraphState, *, run_status: str | None, ticket_status: str, response: str, route: str
+    ) -> None:
+        """Record the outcome on the ticket and the run (code only, W2.12)."""
+        category = state.get("complaint_category")
+        gateway(WORKFLOW, {"update_ticket"}).execute(
+            "update_ticket",
+            {
+                "ticket_id": ctx.ticket_id,
+                "status": ticket_status,
+                "note": state.get("summary"),
+                "category": category,
+            },
+            call_id=f"finish_{route}",
+        )
+        with ctx.lock:
+            if run_status is not None:
+                set_run_status(ctx.db, ctx.run_id, run_status, actor=WORKFLOW)
+            set_run_output(
+                ctx.db,
+                ctx.run_id,
+                {
+                    "final_response": response,
+                    "route": route,
+                    "category": category,
+                    "order_id": state.get("order_id"),
+                    "proposal_id": state.get("proposed_action_id"),
+                    "approval_id": state.get("approval_id"),
+                    "policy_references": state.get("policy_references") or [],
+                    "validation_problems": state.get("validation_problems") or [],
+                    "stop_reason": state.get("stop_reason"),
+                },
+            )
+            ctx.db.commit()
+
+    def clarification_question(state: GraphState) -> str:
+        missing = state.get("missing_information") or []
+        proposal = state.get("proposal") or {}
+        if "order_id" not in missing and proposal.get("customer_message"):
+            return proposal["customer_message"]
+        if "order_id" in missing:
+            with ctx.lock:
+                orders = list_orders(ctx.db, ctx.customer, limit=5)
+            listed = "; ".join(f"{o.id} ({', '.join(o.product_names)})" for o in orders)
+            question = "Which order is this about? Please reply with the order ID (it starts "
+            question += "with ord_)."
+            return f"{question} Your recent orders: {listed}." if listed else question
+        return "Could you share: " + ", ".join(missing) + "?"
+
+    # --- Routing (code) ----------------------------------------------------------------
+
+    def after_classify(state: GraphState) -> str | list[str]:
+        if state.get("halted") or state.get("complaint_category") == "out_of_scope":
+            return "finish_escalate"
+        if rt.config.architecture == "single":
+            return "single_agent"
+        if state.get("complaint_category") == "refund_request":
+            return "investigate_then_policy"
+        return ["investigate", "policy"]
+
+    def after_gather(state: GraphState) -> str:
+        return "finish_escalate" if state.get("halted") else "check_missing"
+
+    def after_check_missing(state: GraphState) -> str:
+        if state.get("missing_information"):
+            rounds = state.get("clarification_rounds") or 0
+            return (
+                "request_clarification" if rounds < MAX_CLARIFICATION_ROUNDS else "finish_escalate"
+            )
+        return "validate" if state.get("proposal") else "resolve"
+
+    def after_resolve(state: GraphState) -> str:
+        return "finish_escalate" if state.get("halted") else "validate"
+
+    def after_validate(state: GraphState) -> str:
+        route = state.get("route")
+        if route == "ask_clarification":
+            rounds = state.get("clarification_rounds") or 0
+            return (
+                "request_clarification" if rounds < MAX_CLARIFICATION_ROUNDS else "finish_escalate"
+            )
+        return {
+            "request_approval": "persist_proposal",
+            "answer_only": "finish_answer",
+        }.get(route or "", "finish_escalate")
+
+    def after_persist(state: GraphState) -> str:
+        return "finish_escalate" if state.get("route") == "escalate" else "finish_approval"
+
+    graph = StateGraph(GraphState)
+    for name, node in [
+        ("classify", classify_node),
+        ("single_agent", single_agent_node),
+        ("investigate", investigate_node),
+        ("policy", policy_node),
+        ("investigate_then_policy", investigate_then_policy_node),
+        ("check_missing", check_missing_node),
+        ("resolve", resolve_node),
+        ("validate", validate_node),
+        ("persist_proposal", persist_proposal_node),
+        ("request_clarification", request_clarification_node),
+        ("finish_answer", finish_answer_node),
+        ("finish_approval", finish_approval_node),
+        ("finish_escalate", finish_escalate_node),
+    ]:
+        graph.add_node(name, guarded(node))
+    # Not guarded: interrupt() works by raising, and it must propagate to LangGraph.
+    graph.add_node("await_customer", await_customer_node)
+
+    graph.add_edge(START, "classify")
+    graph.add_conditional_edges(
+        "classify",
+        after_classify,
+        ["finish_escalate", "single_agent", "investigate_then_policy", "investigate", "policy"],
+    )
+    graph.add_conditional_edges("single_agent", after_gather, ["check_missing", "finish_escalate"])
+    graph.add_conditional_edges(
+        "investigate_then_policy", after_gather, ["check_missing", "finish_escalate"]
+    )
+    graph.add_node("join", lambda state: {})
+    graph.add_edge(["investigate", "policy"], "join")
+    graph.add_conditional_edges("join", after_gather, ["check_missing", "finish_escalate"])
+    graph.add_conditional_edges(
+        "check_missing",
+        after_check_missing,
+        ["request_clarification", "finish_escalate", "validate", "resolve"],
+    )
+    graph.add_conditional_edges("resolve", after_resolve, ["validate", "finish_escalate"])
+    graph.add_conditional_edges(
+        "validate",
+        after_validate,
+        ["persist_proposal", "finish_answer", "finish_escalate", "request_clarification"],
+    )
+    graph.add_conditional_edges(
+        "persist_proposal", after_persist, ["finish_approval", "finish_escalate"]
+    )
+    graph.add_edge("request_clarification", "await_customer")
+    graph.add_edge("await_customer", "classify")
+    for name in ("finish_answer", "finish_approval", "finish_escalate"):
+        graph.add_edge(name, END)
+    return graph

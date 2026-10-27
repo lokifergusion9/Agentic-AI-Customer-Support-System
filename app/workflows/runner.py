@@ -1,0 +1,165 @@
+"""Start and resume resolution runs (W2.13, W2.14).
+
+Runs execute inline for now (Q7): the request returns when the workflow finishes or pauses.
+W3.13 moves this onto the worker without changing these functions' contract.
+"""
+
+import logging
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import date
+from typing import Any
+
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.types import Command
+from sqlalchemy.orm import Session
+
+from app.agents.config import AgentConfig
+from app.agents.loop import AgentRuntime
+from app.auth.customer import AuthenticatedCustomer
+from app.llm.calls import RunBudget, RunRecorder
+from app.llm.types import ModelProvider
+from app.policies.embeddings import Embedder
+from app.services.audit import record_event
+from app.services.errors import ServiceFailure
+from app.services.providers import ProviderClient
+from app.services.runs import RunView, get_run, set_run_output, set_run_status, start_run
+from app.services.tickets import get_ticket
+from app.tools.base import ToolContext
+from app.workflows.graph import build_graph
+
+logger = logging.getLogger(__name__)
+
+PROMPTS = {
+    "single": ["classifier", "single_agent"],
+    "specialist": ["classifier", "investigation", "policy", "resolution"],
+}
+
+
+@dataclass
+class WorkflowServices:
+    """What a run needs from outside; the API builds it from settings, tests from fakes."""
+
+    provider: ModelProvider
+    config: AgentConfig
+    payments: ProviderClient
+    shipping: ProviderClient
+    embedder: Embedder
+    checkpointer: BaseCheckpointSaver
+    today: date | None = None
+    sleep: Callable[[float], None] = field(default=time.sleep)
+
+
+def start_resolution(
+    db: Session, customer: AuthenticatedCustomer, ticket_id: str, services: WorkflowServices
+) -> RunView:
+    ticket = get_ticket(db, customer, ticket_id)  # TICKET_NOT_FOUND unless it is theirs
+    run = start_run(db, customer, ticket_id)  # RUN_ALREADY_ACTIVE if one is unfinished
+    rt = runtime(db, customer, run, services, steps_used=0, tokens_used=0)
+    rt.recorder.record(
+        "system:workflow",
+        "run_configured",
+        services.config.summary(PROMPTS[services.config.architecture]),
+    )
+    initial: dict[str, Any] = {
+        "run_id": run.id,
+        "ticket_id": ticket.id,
+        "authenticated_customer_id": customer.customer_id,
+        "order_id": ticket.order_id,
+        "customer_message": ticket.customer_message,
+        "customer_messages": [ticket.customer_message],
+        "clarification_rounds": 0,
+        "verified_facts": {},
+        "policy_references": [],
+        "retry_counts": {},
+    }
+    return invoke(db, customer, run, rt, services, initial)
+
+
+def resume_with_message(
+    db: Session,
+    customer: AuthenticatedCustomer,
+    run_id: str,
+    message: str,
+    services: WorkflowServices,
+) -> RunView:
+    """W2.13: the customer answers a clarification question; the same thread continues."""
+    run = get_run(db, customer, run_id)  # RUN_NOT_FOUND unless it is theirs
+    if run.status != "waiting_for_customer":
+        raise ServiceFailure("RUN_NOT_WAITING", "This run is not waiting for a customer reply.")
+    actor = f"customer:{customer.customer_id}"
+    set_run_status(db, run_id, "running", actor=actor)
+    # Redacted: the reply text goes to the workflow state, only its length to the audit trail.
+    record_event(
+        db,
+        actor=actor,
+        event_type="customer_message",
+        payload={"chars": len(message)},
+        ticket_id=run.ticket_id,
+        run_id=run_id,
+    )
+    db.commit()
+    rt = runtime(db, customer, run, services, steps_used=0, tokens_used=0)
+    # The budget is per run, not per request: continue from what the checkpoint recorded.
+    values = (
+        build_graph(rt)
+        .compile(checkpointer=services.checkpointer)
+        .get_state({"configurable": {"thread_id": run.thread_id}})
+        .values
+        or {}
+    )
+    rt.budget.steps_used = values.get("steps_used", 0)
+    rt.budget.tokens_used = values.get("tokens_used", 0)
+    return invoke(db, customer, run, rt, services, Command(resume=message))
+
+
+def runtime(
+    db: Session,
+    customer: AuthenticatedCustomer,
+    run: RunView,
+    services: WorkflowServices,
+    *,
+    steps_used: int,
+    tokens_used: int,
+) -> AgentRuntime:
+    recorder = RunRecorder(db, run.id, run.ticket_id)
+    ctx = ToolContext(
+        db=db,
+        customer=customer,
+        run_id=run.id,
+        ticket_id=run.ticket_id,
+        payments=services.payments,
+        shipping=services.shipping,
+        embedder=services.embedder,
+        today=services.today,
+        lock=recorder.lock,
+    )
+    budget = RunBudget(
+        services.config.max_steps, services.config.max_tokens, steps_used, tokens_used
+    )
+    return AgentRuntime(services.provider, services.config, recorder, budget, ctx, services.sleep)
+
+
+def invoke(
+    db: Session,
+    customer: AuthenticatedCustomer,
+    run: RunView,
+    rt: AgentRuntime,
+    services: WorkflowServices,
+    graph_input: Any,
+) -> RunView:
+    graph = build_graph(rt).compile(checkpointer=services.checkpointer)
+    try:
+        graph.invoke(graph_input, {"configurable": {"thread_id": run.thread_id}})
+    except Exception as exc:
+        # Unexpected failure (not a model limit, which the graph escalates itself): the run is
+        # marked failed with the error class, never left "running".
+        logger.exception("run %s failed", run.id)
+        db.rollback()
+        set_run_status(db, run.id, "failed", actor="system:workflow")
+        set_run_output(
+            db, run.id, {"route": "failed", "stop_reason": "error", "error": type(exc).__name__}
+        )
+        db.commit()
+    return get_run(db, customer, run.id)

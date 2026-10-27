@@ -221,14 +221,14 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
 
 ### Workflow state and graph
 
-- [ ] **W2.6 — Structured workflow state** (§10), with enough state to inspect and resume the workflow:
+- [x] **W2.6 — Structured workflow state** (§10), with enough state to inspect and resume the workflow (**done:** `app/workflows/state.py`; facts and citations are written by code from tool results, plus budget counters that survive pauses):
   ```text
   run_id, ticket_id, authenticated_customer_id, order_id, complaint_category,
   customer_message, verified_facts, policy_references, missing_information,
   proposed_action_id, approval_id, execution_status, external_result_reference,
   retry_counts, error_details, final_response
   ```
-- [ ] **W2.7 — Validated schemas for specialist outputs** (§10). The resolution proposal must match:
+- [x] **W2.7 — Validated schemas for specialist outputs** (§10). **Done:** `app/schemas/agents.py` (`Classification`, `EvidenceSummary`, `PolicyFinding`, `ResolutionProposal`, all `extra="forbid"`; the proposal adds `action` choices and a `customer_message` for answers and questions). The resolution proposal must match:
   ```json
   {
     "action": "request_refund_approval",
@@ -242,9 +242,9 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
   }
   ```
   The application validates the amount, ownership and eligibility **independently** of these values.
-- [ ] **W2.8 — Complaint classification** (§4, §16). Classify into `order_status`, `refund_request` or `damaged_item`. Anything else is out of scope and is escalated.
-- [ ] **W2.9 — Single-agent baseline first** (§6). Build one tool-using agent with **deterministic control flow** that runs the §4 flow end to end. Keep it runnable, because W5.2 compares against it (`flash_single_v1`).
-- [ ] **W2.10 — Specialist agents** (§6), each with **only the tools it needs**:
+- [x] **W2.8 — Complaint classification** (§4, §16). Classify into `order_status`, `refund_request` or `damaged_item`. Anything else is out of scope and is escalated. **Done:** classifier prompt + `Classification` schema; out of scope goes straight to escalation.
+- [x] **W2.9 — Single-agent baseline first** (§6). Build one tool-using agent with **deterministic control flow** that runs the §4 flow end to end. Keep it runnable, because W5.2 compares against it (`flash_single_v1`). **Done:** `AGENT_ARCHITECTURE=single` runs `single_agent` (read tools + `search_policy`) inside the same graph; the agent loop is `app/agents/loop.py` (E§11).
+- [x] **W2.10 — Specialist agents** (§6), each with **only the tools it needs** (**done:** `app/agents/specialists.py`):
 
   | Agent | Responsibility | Output | Tools |
   |---|---|---|---|
@@ -252,9 +252,9 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
   | Policy | Retrieve applicable policy passages | Citations and policy interpretation | `search_policy` |
   | Resolution | Combine facts and policy into a proposed action | Structured resolution proposal | `create_refund_proposal` |
 
-  - [ ] Run investigation and policy retrieval **concurrently** when they are independent, then combine their outputs.
-  - [ ] When policy selection depends on the product or order date, gather facts first.
-- [ ] **W2.11 — LangGraph routing** (§4, §5):
+  - [x] Run investigation and policy retrieval **concurrently** when they are independent, then combine their outputs (order status, damaged item: parallel graph branches; database access is serialized by a per-run lock, model calls overlap).
+  - [x] When policy selection depends on the product or order date, gather facts first (refunds: the refund policy version depends on the delivery date).
+- [x] **W2.11 — LangGraph routing** (§4, §5) (**done:** `app/workflows/graph.py`, `app/workflows/validation.py`):
   - authenticate & validate
   - classify
   - retrieve facts and policies
@@ -262,19 +262,19 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
   - create proposal
   - **validate against business rules (code)**
   - route to **answer only**, **request approval** or **escalate to human**
-- [ ] **W2.12 — Ordinary code, not the LLM, for** (§6): authentication, access control, amount calculations, eligibility enforcement, approval validation, API execution, retry limits and state transitions.
-- [ ] **W2.13 — Missing-information loop** (§4, §14). Ask a targeted clarification question, pause, and resume when `POST /runs/{run_id}/messages` supplies the additional information.
+- [x] **W2.12 — Ordinary code, not the LLM, for** (§6): authentication, access control, amount calculations, eligibility enforcement, approval validation, API execution, retry limits and state transitions. **Done:** every route is chosen by code; the validator rejects evidence refs or citations the tools did not return, unverified orders, and amounts the eligibility code does not allow.
+- [x] **W2.13 — Missing-information loop** (§4, §14). Ask a targeted clarification question, pause, and resume when `POST /runs/{run_id}/messages` supplies the additional information. **Done:** `interrupt()` in its own node (side effects happen in the node before it), checkpoints in a separate `langgraph` schema (`app/workflows/checkpoints.py`), `resume_with_message` in `app/workflows/runner.py`; the order question lists the customer's recent orders; at most 2 rounds, then escalation.
 - [ ] **W2.14 — Run endpoints** (§13):
   - [ ] `POST /tickets/{ticket_id}/runs`: start a resolution workflow.
   - [ ] `GET /runs/{run_id}`: retrieve status and output.
   - [ ] `GET /runs/{run_id}/events`: retrieve a **redacted** event timeline.
   - [ ] `POST /runs/{run_id}/messages`: supply additional customer information.
-- [ ] **W2.15 — Model-output guardrails** (§14). On invalid model output: validate, attempt a limited repair, then stop or escalate. Stop at a configured **step or cost limit** to prevent excessive workflow loops.
-- [ ] **W2.16 — Record every model call and keep the agent configurable** (E§11, E§21, E§22). Added 2026-10-27 so the Week 4 evaluation platform can measure and compare the agent:
-  - [ ] Every model call writes a `model_call` audit event (W3.15 shape): provider, **resolved model ID**, prompt version, input / output / cached tokens **as reported by the provider**, latency (monotonic clock), retry number and outcome. Missing usage is stored as `null` (unknown), never `0`.
-  - [ ] Retried model requests are recorded too, so their usage counts.
-  - [ ] Prompts live as versioned files (for example `app/agents/prompts/resolution_v1.md`) and their content hash is recorded with each run.
-  - [ ] Model ID, prompt version and architecture (`single` for W2.9, `specialist` for W2.10) come from one **agent configuration** object, not from scattered constants. The evaluation platform registers these as `agent_configs` (W4.3).
+- [x] **W2.15 — Model-output guardrails** (§14). On invalid model output: validate, attempt a limited repair, then stop or escalate. Stop at a configured **step or cost limit** to prevent excessive workflow loops. **Done:** one repair attempt (`model_output_invalid` events), then escalation with `stop_reason=invalid_model_output`; `RunBudget` caps model + tool calls (`MAX_WORKFLOW_STEPS`) and tokens (`MAX_RUN_TOKENS`) per run, across pauses, with `run_halted` recorded.
+- [x] **W2.16 — Record every model call and keep the agent configurable** (E§11, E§21, E§22). Added 2026-10-27 so the Week 4 evaluation platform can measure and compare the agent:
+  - [x] Every model call writes a `model_call` audit event (W3.15 shape): provider, **resolved model ID**, prompt version, input / output / cached tokens **as reported by the provider**, latency (monotonic clock), retry number and outcome. Missing usage is stored as `null` (unknown), never `0`.
+  - [x] Retried model requests are recorded too, so their usage counts.
+  - [x] Prompts live as versioned files (for example `app/agents/prompts/resolution_v1.md`) and their content hash is recorded with each run (`run_configured` event).
+  - [x] Model ID, prompt version and architecture (`single` for W2.9, `specialist` for W2.10) come from one **agent configuration** object, not from scattered constants. The evaluation platform registers these as `agent_configs` (W4.3). (`app/agents/config.py`, `AGENT_ARCHITECTURE` / `AGENT_PROMPT_VERSION` settings.)
 
 **Gate check:** the headphones refund example produces a schema-valid proposal with evidence refs and policy citations, and the business-rule validator accepts it. Every model call in that run appears in the audit trail with its token usage.
 

@@ -45,9 +45,7 @@ def test_every_call_records_usage_and_model_but_no_text() -> None:
 
 def test_rate_limit_is_retried_and_every_attempt_recorded() -> None:
     recorder, budget = ListRecorder(), RunBudget(max_steps=5, max_tokens=1000)
-    model = ScriptedModel(
-        sequence(ModelError("HTTP_429", "quota", retryable=True), reply("ok"))
-    )
+    model = ScriptedModel(sequence(ModelError("HTTP_429", "quota", retryable=True), reply("ok")))
 
     call(model, recorder, budget)
 
@@ -89,8 +87,10 @@ def test_missing_usage_is_unknown_in_the_trail_but_counts_against_the_budget() -
 
 @pytest.mark.parametrize(
     ("budget", "limit"),
-    [(RunBudget(max_steps=1, max_tokens=1000, steps_used=1), "max_steps"),
-     (RunBudget(max_steps=9, max_tokens=100, tokens_used=100), "token_limit")],
+    [
+        (RunBudget(max_steps=1, max_tokens=1000, steps_used=1), "max_steps"),
+        (RunBudget(max_steps=9, max_tokens=100, tokens_used=100), "token_limit"),
+    ],
 )
 def test_exhausted_budget_stops_before_calling(budget: RunBudget, limit: str) -> None:
     model = ScriptedModel(sequence(reply("never")))
@@ -108,12 +108,15 @@ def test_tool_results_go_back_as_one_user_turn_after_the_model_turn() -> None:
         Message("user", "Where is my refund?"),
         Message(
             "assistant",
-            tool_calls=[ToolCall("c1", "get_order", {"order_id": "ord_1"}),
-                        ToolCall("c2", "get_return_status", {"order_id": "ord_1"})],
+            tool_calls=[
+                ToolCall("c1", "get_order", {"order_id": "ord_1"}),
+                ToolCall("c2", "get_return_status", {"order_id": "ord_1"}),
+            ],
         ),
         Message("tool", tool_call_id="c1", tool_name="get_order", tool_result={"success": True}),
-        Message("tool", tool_call_id="c2", tool_name="get_return_status",
-                tool_result={"success": False}),
+        Message(
+            "tool", tool_call_id="c2", tool_name="get_return_status", tool_result={"success": False}
+        ),
     ]
     contents = to_contents(messages)
 
@@ -136,8 +139,11 @@ def test_response_parsing_reads_calls_text_and_usage() -> None:
                     parts=[
                         types.Part(text="thinking", thought=True),
                         types.Part(text="Let me check."),
-                        types.Part(function_call=types.FunctionCall(
-                            id="fc1", name="get_order", args={"order_id": "ord_1"})),
+                        types.Part(
+                            function_call=types.FunctionCall(
+                                id="fc1", name="get_order", args={"order_id": "ord_1"}
+                            )
+                        ),
                     ],
                 ),
                 finish_reason=types.FinishReason.STOP,

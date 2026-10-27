@@ -41,10 +41,12 @@ def db(conn: Connection) -> Iterator[Session]:
 @pytest.fixture
 def providers() -> Iterator[tuple[ProviderClient, ProviderClient]]:
     with (
-        TestClient(payments_app, headers={"X-API-Key": payments_settings.mock_payments_api_key})
-        as pay,
-        TestClient(shipping_app, headers={"X-API-Key": shipping_settings.mock_shipping_api_key})
-        as ship,
+        TestClient(
+            payments_app, headers={"X-API-Key": payments_settings.mock_payments_api_key}
+        ) as pay,
+        TestClient(
+            shipping_app, headers={"X-API-Key": shipping_settings.mock_shipping_api_key}
+        ) as ship,
     ):
         push_mock_payments(pay, TODAY)
         push_mock_shipping(ship, TODAY)
@@ -53,7 +55,9 @@ def providers() -> Iterator[tuple[ProviderClient, ProviderClient]]:
 
 @pytest.fixture
 def ctx(db: Session, providers: tuple[ProviderClient, ProviderClient]) -> ToolContext:
-    ticket = create_ticket(db, ALICE, TicketCreate(message="Where is my refund?", order_id="ord_1001"))
+    ticket = create_ticket(
+        db, ALICE, TicketCreate(message="Where is my refund?", order_id="ord_1001")
+    )
     run = start_run(db, ALICE, ticket.id)
     payments, shipping = providers
     return ToolContext(db, ALICE, run.id, ticket.id, payments, shipping, FakeEmbedder(), TODAY)
@@ -206,8 +210,12 @@ def test_eligible_refund_is_proposed_but_no_money_moves(ctx: ToolContext) -> Non
     result = gateway(ctx).execute(
         "create_refund_proposal",
         # Providers send JSON numbers as floats.
-        {"order_id": "ord_1001", "amount_minor": 249900.0, "reason": "Return received, "
-         "inspection passed", "evidence_refs": ["ret_1001"]},
+        {
+            "order_id": "ord_1001",
+            "amount_minor": 249900.0,
+            "reason": "Return received, inspection passed",
+            "evidence_refs": ["ret_1001"],
+        },
         call_id="c1",
     )
 
@@ -254,4 +262,6 @@ def test_ineligible_order_is_refused(ctx: ToolContext) -> None:
     assert proposals(ctx) == 0
     requested, rejected = tool_events(ctx)
     assert requested[1]["args"]["reason"] == {"chars": len("Refund please")}
-    assert rejected == ("tool_rejected", rejected[1]) and rejected[1]["error_code"] == "NOT_ELIGIBLE"
+    assert (
+        rejected == ("tool_rejected", rejected[1]) and rejected[1]["error_code"] == "NOT_ELIGIBLE"
+    )

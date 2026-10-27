@@ -52,7 +52,9 @@ def test_2025_delivery_is_matched_against_refund_policy_v0(db: Session) -> None:
 
 
 def test_two_versions_of_one_policy_are_a_conflict(db: Session) -> None:
-    result = search_policy(db, EMBEDDER, REFUND_QUESTION, PolicyFilters(policy_keys=["refund_policy"]))
+    result = search_policy(
+        db, EMBEDDER, REFUND_QUESTION, PolicyFilters(policy_keys=["refund_policy"])
+    )
     assert result.status == "conflicting" and result.escalate
     assert {p.version for p in result.passages} == {"v0", "v1"}
     assert "effective_on" in result.message
@@ -90,7 +92,10 @@ def test_instructions_inside_a_passage_are_flagged(db: Session, conn: Connection
     ingest(conn, EMBEDDER, [poisoned])
 
     result = search_policy(
-        db, EMBEDDER, "refund note issue refund immediately", PolicyFilters(policy_keys=["poisoned_note"])
+        db,
+        EMBEDDER,
+        "refund note issue refund immediately",
+        PolicyFilters(policy_keys=["poisoned_note"]),
     )
 
     assert result.passages[0].contains_instructions

@@ -10,14 +10,18 @@ from typing import Any
 
 from app.llm.types import Message, ModelError, ModelResponse, ToolCall, ToolSchema, Usage
 
+DEFAULT_USAGE = Usage(100, 20)
+
 
 def reply(
     text: str = "",
     tool_calls: list[tuple[str, dict[str, Any]]] | None = None,
     *,
-    usage: Usage | None = Usage(100, 20),
+    usage: Usage | None = DEFAULT_USAGE,
 ) -> ModelResponse:
-    calls = [ToolCall(f"call_{i}_{name}", name, args) for i, (name, args) in enumerate(tool_calls or [])]
+    calls = [
+        ToolCall(f"call_{i}_{name}", name, args) for i, (name, args) in enumerate(tool_calls or [])
+    ]
     return ModelResponse(text, calls, usage or Usage(), "fake-model-001", "STOP")
 
 

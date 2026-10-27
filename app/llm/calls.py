@@ -37,7 +37,9 @@ class RunBudget:
 
     def take_step(self) -> None:
         if self.steps_used >= self.max_steps:
-            raise BudgetExceeded("max_steps", f"The run reached its limit of {self.max_steps} steps.")
+            raise BudgetExceeded(
+                "max_steps", f"The run reached its limit of {self.max_steps} steps."
+            )
         if self.tokens_used >= self.max_tokens:
             raise BudgetExceeded(
                 "token_limit", f"The run reached its limit of {self.max_tokens} tokens."
