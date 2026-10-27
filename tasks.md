@@ -243,7 +243,7 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
   ```
   The application validates the amount, ownership and eligibility **independently** of these values.
 - [x] **W2.8 — Complaint classification** (§4, §16). Classify into `order_status`, `refund_request` or `damaged_item`. Anything else is out of scope and is escalated. **Done:** classifier prompt + `Classification` schema; out of scope goes straight to escalation.
-- [x] **W2.9 — Single-agent baseline first** (§6). Build one tool-using agent with **deterministic control flow** that runs the §4 flow end to end. Keep it runnable, because W5.2 compares against it (`flash_single_v1`). **Done:** `AGENT_ARCHITECTURE=single` runs `single_agent` (read tools + `search_policy`) inside the same graph; the agent loop is `app/agents/loop.py` (E§11).
+- [x] **W2.9 — Single-agent baseline first** (§6). Build one tool-using agent with **deterministic control flow** that runs the §4 flow end to end. Keep it runnable, because W5.2 compares against it (`lite_single_v1`). **Done:** `AGENT_ARCHITECTURE=single` runs `single_agent` (read tools + `search_policy`) inside the same graph; the agent loop is `app/agents/loop.py` (E§11).
 - [x] **W2.10 — Specialist agents** (§6), each with **only the tools it needs** (**done:** `app/agents/specialists.py`):
 
   | Agent | Responsibility | Output | Tools |
@@ -278,7 +278,7 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
 
 **Gate check:** the headphones refund example produces a schema-valid proposal with evidence refs and policy citations, and the business-rule validator accepts it. Every model call in that run appears in the audit trail with its token usage.
 
-**Gate status (2026-10-27):** passes with the scripted model (`tests/integration/test_workflow.py::test_headphones_refund_produces_a_validated_proposal_with_citations`, specialist and single architectures). The real-Gemini run is `uv run pytest -m llm tests/integration/test_week2_gate_llm.py`; it is pending until `LLM_MODEL` (Flash, from AI Studio) and `LLM_API_KEY` are set in `.env`.
+**Gate status (2026-10-27):** passes with the scripted model (`tests/integration/test_workflow.py::test_headphones_refund_produces_a_validated_proposal_with_citations`, specialist and single architectures). The real-Gemini run is `uv run pytest -m llm tests/integration/test_week2_gate_llm.py`: **passed** with `gemini-3.5-flash` (specialist; the single run then hit Flash's 20-a-day quota and escalated cleanly) and with `gemini-3.5-flash-lite` (specialist and single).
 
 ---
 
@@ -575,25 +575,28 @@ Ground rules for every Week 4 task:
   - [ ] Repeated trials (E§22): mean success across repetitions, per-task variability, and "**passed all repetitions**". Uncertainty by bootstrapping at the **task** level, so repetitions of one task stay together.
   - [ ] Use a **scorecard** (verified success, hard violations, tool behavior, latency, cost, coverage), not one total score. A configuration with high success but low coverage must not look equivalent to one that completed the whole experiment.
   - [ ] Missing usage is **unknown cost**, never free.
-- [ ] **W5.2 — Configurations and the experiment plan** (E§3, E§22, Q9, Q10). Register four immutable `agent_configs`:
+- [ ] **W5.2 — Configurations and the experiment plan** (E§3, E§22, Q9, Q10; revised 2026-10-27 for the measured free-tier quotas). Register four immutable `agent_configs`. Flash-Lite is the main model because Flash allows only 20 requests a day:
 
-  | Config | Model | Architecture | Prompt |
+  | Config | Model ID | Architecture | Prompt |
   |---|---|---|---|
-  | `flash_single_v1` | Gemini Flash | single agent (W2.9) | v1 |
-  | `flash_specialist_v1` | Gemini Flash | specialists (W2.10) | v1 |
-  | `flash_specialist_v2` | Gemini Flash | specialists | v2: explicit investigation and approval instructions |
-  | `flashlite_specialist_v1` | Gemini Flash-Lite | specialists | v1 |
+  | `lite_single_v1` | `gemini-3.5-flash-lite` | single agent (W2.9) | v1 |
+  | `lite_specialist_v1` | `gemini-3.5-flash-lite` | specialists (W2.10) | v1 |
+  | `lite_specialist_v2` | `gemini-3.5-flash-lite` | specialists | v2: explicit investigation and approval instructions |
+  | `flash_specialist_v1` | `gemini-3.5-flash` (served as `gemini-3.6-flash`) | specialists | v1 |
 
   Three comparisons, each changing **one** thing:
-  - **Architecture:** `flash_single_v1` vs `flash_specialist_v1` (the original §6 baseline comparison): does the extra coordination improve correctness enough to justify its cost and latency?
-  - **Prompt:** `flash_specialist_v1` vs `flash_specialist_v2`.
-  - **Model:** `flash_specialist_v1` vs `flashlite_specialist_v1`.
+  - **Architecture:** `lite_single_v1` vs `lite_specialist_v1` (the original §6 baseline comparison): does the extra coordination improve correctness enough to justify its cost and latency? All 50 tasks.
+  - **Prompt:** `lite_specialist_v1` vs `lite_specialist_v2`. All 50 tasks.
+  - **Model:** `lite_specialist_v1` vs `flash_specialist_v1`, on the **validation split only** (Flash's 20 requests a day).
 
   Run order, sized for the free-tier quota (Q10):
-  1. **Pilot:** the 5 pilot tasks × 1 config. Estimate quota need as *pilot mean model calls per run × planned runs*, plus headroom (E§21).
-  2. **Main:** all 50 tasks × 4 configs × 1 repetition (200 runs).
-  3. **Repetitions:** the validation split × 4 configs × 3 repetitions.
-  4. **Final:** prompts are frozen before the held-out test results are read.
+  1. **Pilot:** the 5 pilot tasks × `lite_specialist_v1`. Measure model calls per run and confirm Flash-Lite's daily limit (it is recorded from the first 429, W2.16). Estimate quota need as *pilot mean model calls per run × planned runs*, plus headroom (E§21).
+  2. **Main:** all 50 tasks × the three Flash-Lite configs × 1 repetition (150 runs).
+  3. **Repetitions:** the validation split × `lite_single_v1` and `lite_specialist_v1` × 3 repetitions (60 runs).
+  4. **Model comparison:** the validation split × `flash_specialist_v1` × 1 (10 runs, about 60 Flash calls: 3 days at 20 a day).
+  5. **Final:** prompts are frozen before the held-out test results are read.
+
+  Expected volume: about 1,300 Flash-Lite calls (≈ 6 per specialist run, ≈ 5 per single-agent run, W2.16 call saving) and about 60 Flash calls, spread over several days by the queue.
 
   - [ ] Same tasks, environment, limits, reviewer behavior and fault configuration for every config (E§22).
   - [ ] When the daily quota runs out, jobs wait (`available_at`) instead of failing, so a long experiment resumes the next day without losing runs.
@@ -737,7 +740,7 @@ Q1–Q7 were decided before Week 1. Q8–Q12 cover the evaluation platform and w
 | Q6 | Store currency (the PDF example uses `INR`) and the approval expiry duration. | One store and one currency (§3). Expiry drives W3.6. **Decided (2026-10-25): INR, approval expiry 60 minutes.** Money is stored in paise (₹2,499.00 = `249900`), matching the PDF example. `STORE_CURRENCY=INR` and `APPROVAL_EXPIRY_MINUTES=60` live in `.env.example`. The approval-expired test (W3.16) advances the clock or sets a short expiry rather than waiting. |
 | Q7 | Prototype inline execution only, or the `202 Accepted` + worker model from the start? | Affects W3.12 and W3.13 and the crash-recovery demo. **Decided (2026-10-25): inline first, then `202 Accepted` + a separate worker process at W3.13.** Weeks 1–2 run workflows inline. W3.13 adds a separate `jobs` table (`run_id`, `status`, `attempts`, `lease_expires_at`), keeping the §7 tables unchanged, and a worker process that claims jobs with `SELECT ... FOR UPDATE SKIP LOCKED`. The queue is Postgres-backed, with no Redis or Celery. On startup the worker runs the reconciliation sweep (W3.12) before picking up jobs. A `worker` service is added to docker-compose, so the W3 gate check can kill and restart the worker alone. **Extended (2026-10-27):** the `jobs` table gets a `job_type` and lease tokens, so the same worker runs evaluation attempts (W3.13, W4.8). |
 | Q8 | Where do the evaluation tables (experiments, runs, attempts, scores, ground truth) live? | The agent must not be able to read expected outcomes (E§5). Affects W4.3. **Decided (2026-10-27): a separate `eval` PostgreSQL schema**, created by migrations. The agent's tools read only the `support` schema and the mocks, and code under `app/` never imports from `evals/`. Traces and final-state snapshots are copied into `eval` before the next environment reset. |
-| Q9 | Which second model configuration is compared? | E§3 requires a second model configuration. Affects W4.7, W5.2. **Decided (2026-10-27): Gemini Flash vs Gemini Flash-Lite**, both free tier through the same provider adapter; only the model ID changes. Exact IDs are pinned in the `agent_configs` rows, and the provider-resolved model version is recorded per call (W2.16). |
-| Q10 | How large are the experiments, given the free-tier quota? | Roughly 600 runs for 50 tasks × 4 configs × 3 repetitions would take several days of quota. Affects W5.2. **Decided (2026-10-27): pilot, then a small matrix.** 5 pilot tasks first (to estimate quota need), then 50 tasks × 4 configs × 1 repetition, then 3 repetitions on the validation split only. Jobs wait for quota instead of failing. |
+| Q9 | Which second model configuration is compared? | E§3 requires a second model configuration. Affects W4.7, W5.2. **Decided (2026-10-27): Gemini Flash vs Gemini Flash-Lite**, both free tier through the same provider adapter; only the model ID changes. Exact IDs are pinned in the `agent_configs` rows, and the provider-resolved model version is recorded per call (W2.16). **Revised (2026-10-27, after the first real runs):** IDs checked against the key's model list: `gemini-3.5-flash-lite` is the **main** model, and `gemini-3.5-flash` (the API serves it as `gemini-3.6-flash`) is the second model. Flash's free tier allows **20 requests per day** (`quotaValue` in its 429), so Flash runs only on the validation split. The 2.5 models are closed to new users; `gemini-3.8-flash` was overloaded (503/504) when tested. Both models passed the real-model Week 2 gate (Flash: specialist; Flash-Lite: specialist and single). |
+| Q10 | How large are the experiments, given the free-tier quota? | Roughly 600 runs for 50 tasks × 4 configs × 3 repetitions would take several days of quota. Affects W5.2. **Decided (2026-10-27): pilot, then a small matrix.** 5 pilot tasks first (to estimate quota need), then 50 tasks × 4 configs × 1 repetition, then 3 repetitions on the validation split only. Jobs wait for quota instead of failing. **Revised (2026-10-27):** the original plan needed about 2,000 calls, impossible at Flash's 20 a day. Now: three Flash-Lite configs on all 50 tasks, repetitions on the validation split for two of them, and Flash on the validation split only (W5.2): about 1,300 Flash-Lite and 60 Flash calls over several days. A specialist run makes about 6 model calls after the call-saving change (commit `501771f`). Flash-Lite's exact daily limit is not published outside AI Studio; the pilot confirms it. Excluded: several projects or keys to multiply quota (against the API terms) and paid billing (Q4). |
 | Q11 | How is each attempt isolated, and how are faults injected fairly? | E§7: runs must never share mutable order state; E§22: faults must not depend on the path an agent takes. Affects W4.4. **Decided (2026-10-27): attempts run one at a time** under a PostgreSQL advisory lock; each resets the business tables and the mocks, then loads its own fixture with a fresh `environment_id`. Faults are keyed to a logical operation (for example `refund.create` for an order, first occurrence), not to "the next N requests". Concurrent attempts with per-environment tables are an extension. |
 | Q12 | How is the evaluation API exposed and protected? | E§24 suggests `/runs/{id}`, which collides with the agent's own `/runs/{run_id}`. Affects W5.4. **Decided (2026-10-27): every evaluation endpoint sits under `/eval`**, and only a new `operator` JWT role may call it (extends Q5's `customer`, `reviewer`, `senior_reviewer`). |
