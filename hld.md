@@ -1,9 +1,15 @@
 # High-Level Architecture — Customer Support Resolution Agent
 
-Source: `Project.pdf`, *"A practical Agentic AI project for aspiring Forward Deployed Engineers"*.
+Sources:
+
+- `Project.pdf`, *"A practical Agentic AI project for aspiring Forward Deployed Engineers"*: the resolution agent (§1–§9 of this file, cited as `PDF §n`).
+- `Project_2.pdf`, *"A complete project guide for engineering students and aspiring Forward Deployed Engineers"*: the evaluation platform (§10, cited as `E§n`). Merged on 2026-10-27 in a scoped form; the resolution agent is the system it evaluates.
+
 Stack: **Python · LangGraph · FastAPI · PostgreSQL** (pgvector optional). All customer data is synthetic and every external service is mocked.
 
 > **Core rule (PDF §4):** the model *proposes* actions. The application decides whether they are permitted and executes them through controlled tools.
+>
+> **Evaluation rule (E§1):** an agent's final message is evidence to inspect, not proof that the task succeeded.
 
 Diagrams in this file:
 
@@ -19,6 +25,12 @@ Diagrams in this file:
   - [7. API endpoints → components](#7-api-endpoints--components)
   - [8. LLM vs ordinary code boundary](#8-llm-vs-ordinary-code-boundary)
   - [9. Components → repository structure](#9-components--repository-structure)
+  - [10. Evaluation platform](#10-evaluation-platform)
+    - [10a. Components](#10a-components)
+    - [10b. One evaluation attempt](#10b-one-evaluation-attempt)
+    - [10c. Agent-visible vs evaluator-visible data](#10c-agent-visible-vs-evaluator-visible-data)
+    - [10d. `eval` schema](#10d-eval-schema)
+    - [10e. Execution and evaluation states](#10e-execution-and-evaluation-states)
 
 ---
 
@@ -31,14 +43,14 @@ flowchart TB
     subgraph clients["Clients"]
         CUST["Customer demo UI<br/>complaint panel · timeline · final outcome"]
         REV["Reviewer UI<br/>approval queue · evidence · policy citations"]
-        EVH["Eval harness<br/>evals/run_evals.py"]
+        EVH["Evaluation platform — evals/<br/>adapters · reviewer simulator · evaluators<br/>details in §10"]
     end
 
     subgraph api["FastAPI app — app/main.py · app/api · app/auth · app/schemas"]
         AUTHN["Authentication & authorization<br/>identity derived from the request"]
         ROUTES["Endpoints<br/>/tickets · /runs · /approvals · /health"]
         VALID["Input & response validation"]
-        RUNNER["Run executor<br/>prototype: inline · robust: 202 Accepted + worker"]
+        RUNNER["Run executor<br/>prototype: inline · robust: 202 Accepted + worker<br/>Postgres jobs queue, SKIP LOCKED (Q7)"]
     end
 
     subgraph wf["LangGraph workflow — app/workflows · app/agents"]
@@ -67,6 +79,7 @@ flowchart TB
         APPDB[("Application tables<br/>customers · orders · tickets · runs<br/>proposals · approvals · refund_operations · audit_events")]
         VEC[("policy_documents · policy_chunks<br/>pgvector optional")]
         CKPT[("LangGraph checkpoint tables<br/>logically separate from app tables")]
+        EVALDB[("eval schema<br/>experiments · runs · attempts · scores<br/>ground truth: no agent access")]
     end
 
     subgraph mocks["Mock external services — mock_services/"]
@@ -109,6 +122,9 @@ flowchart TB
     RUNNER --> CKPT
     GATE --> CKPT
     ROUTES --> APPDB
+    EVH --> EVALDB
+    EVH -.->|"reset + load fixture per attempt"| APPDB
+    EVH -.->|"reset + faults"| mocks
 ```
 
 Notes:
@@ -117,6 +133,7 @@ Notes:
 - **Least privilege per agent.** The investigation agent has no refund-execution tool. Write tools are reachable only through the resolution proposal step and the code-owned execute step (PDF §6).
 - **The checkpoint is not the financial ledger.** Refund accounting lives in application tables, with explicit constraints and transactions (PDF §7).
 - **Mock services can return errors and delayed results**, so realistic failures can be tested (PDF §5).
+- **The evaluation platform drives the agent like a client.** It creates tickets and starts runs through the same API and tools, so every safety check applies to it too. Only the platform reads the `eval` schema (§10).
 
 ---
 
@@ -427,6 +444,16 @@ erDiagram
 
 There is no `payments` table in the PDF schema. Payment and refund status are read from the **mock payment API** (`get_payment_status`, `get_refund_status`).
 
+Additions beyond the PDF §7 schema (all in the `support` schema, added by later migrations):
+
+| Addition | Task | Purpose |
+|---|---|---|
+| `jobs` table | W3.13 (Q7) | Postgres job queue: `job_type` (`workflow_run` · `eval_attempt`), `payload`, `status`, `available_at`, `attempts`, `worker_id`, `lease_token`, `lease_expires_at` |
+| `audit_events.sequence_number` | W3.15 | Per-run event order, unique per run, so the evaluation platform can replay a trace exactly |
+| `model_call` · `tool_requested` · `tool_rejected` · `tool_finished` · `agent_finished` event types | W2.16, W3.15 | Token usage, latency, blocked attempts vs executed effects, stop reason |
+
+The evaluation platform's own tables live in a separate `eval` schema (§10d).
+
 ---
 
 ## 7. API endpoints → components
@@ -444,7 +471,22 @@ Suggested endpoints, exactly as in PDF §13. Authorization is checked on **every
 | `POST /runs/{run_id}/messages` | Supply additional customer information | Customer | resumes the clarification wait |
 | `GET /health` | Check application health | Ops | DB + mocks |
 
-Execution approach: the **prototype** runs short workflows inline and returns when they finish or pause. The **robust version** persists a job, returns `202 Accepted` with the run ID, executes on a worker (FastAPI `BackgroundTasks` or Celery), persists progress, and lets clients poll status.
+Execution approach: the **prototype** runs short workflows inline and returns when they finish or pause. The **robust version** persists a job, returns `202 Accepted` with the run ID, executes on a separate worker process that claims jobs from the Postgres `jobs` table with `SELECT ... FOR UPDATE SKIP LOCKED` (Q7, W3.13), persists progress, and lets clients poll status.
+
+Evaluation endpoints (E§24, W5.4). All sit under `/eval` so they never collide with the agent's `/runs` endpoints, and only the `operator` role may call them (Q12):
+
+| Endpoint | Purpose | Touches |
+|---|---|---|
+| `POST /eval/datasets/import` · `GET /eval/datasets` | Validate and import a dataset version; list them | `eval.datasets`, `dataset_versions`, `task_versions` |
+| `POST /eval/agent-configs` · `GET /eval/agent-configs` | Register an immutable configuration; list them | `eval.agent_configs`, `prompt_versions` |
+| `POST /eval/experiments` | Create experiment, runs and jobs in one transaction (`Idempotency-Key`) | `eval.experiments`, `eval.runs`, `support.jobs` |
+| `GET /eval/experiments/{id}` | Progress and scorecard | `eval.runs`, `eval.scores` |
+| `GET /eval/experiments/{id}/runs` | Paginated runs with filters | `eval.runs` |
+| `POST /eval/experiments/{id}/cancel` | Request cancellation | `eval.experiments`, `support.jobs` |
+| `GET /eval/runs/{id}` | Outcome, attempts, scores | `eval.runs`, `attempts`, `scores` |
+| `GET /eval/attempts/{id}/events` | Ordered trace | `eval.trace_events` |
+| `POST /eval/comparisons` | Compare compatible experiments | `eval.*` |
+| `GET /eval/experiments/{id}/export` | Download the JSON / CSV report | `eval.artifacts` |
 
 ---
 
@@ -508,19 +550,305 @@ customer-support-resolution-agent/
 ├── scripts/
 │   ├── seed_data.py
 │   └── ingest_policies.py
-├── evals/
+├── evals/                 # evaluation platform (§10); app/ never imports from here
 │   ├── datasets/
-│   ├── run_evals.py
-│   └── reports/
+│   │   └── support-v1/
+│   │       ├── tasks/     # one YAML per task: agent view + evaluator view
+│   │       └── splits/    # dev · validation · test · pilot manifests
+│   ├── adapters/          # base.py (AgentAdapter) · scripted.py · langgraph.py
+│   ├── evaluators/        # outcome · policy · trajectory · response
+│   ├── environment.py     # per-attempt reset, fixture loading, snapshots
+│   ├── reviewer.py        # deterministic reviewer simulator
+│   ├── run_evals.py       # create an experiment from a manifest
+│   └── reports/           # exported JSON / CSV per experiment
 ├── tests/
 │   ├── unit/
 │   ├── integration/
-│   └── failure_scenarios/
+│   ├── failure_scenarios/
+│   └── evals/             # evaluator, isolation, worker and accounting tests
 ├── docs/
-├── docker-compose.yml
+├── Makefile               # setup · migrate · seed · test · smoke · evaluate · report
+├── docker-compose.yml     # + worker service (W3.13)
 ├── .env.example
 ├── pyproject.toml
 └── README.md
 ```
 
 The PDF lists a **ticketing API** among the mock services (§5), but its repository tree only has `payments/` and `shipping/` under `mock_services/`. **Decided (Q1 in [`tasks.md`](tasks.md), 2026-10-24):** the ticketing API is a separate mock service in `mock_services/ticketing/` (port 8003). The app's `tickets` table stays the local record, and its status changes only after the ticketing API confirms.
+
+The `evals/` subfolders, `tests/evals/` and the `Makefile` come from `Project_2.pdf` (E§26, E§30), adapted to this repository instead of its separate `agent-evaluation-platform/` layout.
+
+---
+
+## 10. Evaluation platform
+
+`Project_2.pdf`, scoped (Weeks 4–5 in [`tasks.md`](tasks.md)). It answers one question (E§1): *"If I change the agent's model, prompt, tools or orchestration, does it become more reliable, and at what cost?"* The resolution agent from §1–§9 is the system under test.
+
+Objects, used consistently (E§4):
+
+| Object | Meaning |
+|---|---|
+| Task | One problem with initial conditions and success criteria (a YAML file) |
+| Dataset version | An immutable collection of task versions (`support-v1`) |
+| Agent configuration | A fixed combination of model, prompt, architecture and limits |
+| Experiment | A planned evaluation of configurations against a dataset split |
+| Run | One configuration × one task × one repetition |
+| Attempt | A concrete execution of a run; an infrastructure retry is a new attempt |
+| Trace | The ordered events of an attempt: model calls, tool requests and results, decisions |
+| Evaluator | Deterministic code that scores one property |
+| Score | An evaluator's result, with evidence and applicability |
+| Artifact | A final-state snapshot or an exported report |
+
+Scope (decided 2026-10-27): one custom dataset of 50 tasks, deterministic evaluators only, simulated approvals, one attempt at a time. Public benchmarks, an LLM judge, simulated multi-turn users and concurrent attempts are extensions.
+
+### 10a. Components
+
+```mermaid
+flowchart TB
+    subgraph clients["Clients"]
+        CLI["CLI — evals/run_evals.py · Makefile"]
+        DASH["Dashboard — experiments · run detail · comparison"]
+    end
+
+    subgraph evapi["FastAPI — /eval/* (operator role, Q12)"]
+        EAPI["Datasets · agent configs · experiments<br/>comparisons · export"]
+    end
+
+    subgraph worker["Worker process (shared with W3.13)"]
+        CLAIM["Claim eval_attempt job<br/>SKIP LOCKED + lease token"]
+        ENV["Environment manager — evals/environment.py<br/>advisory lock · reset · load fixture · snapshot"]
+        ADP["Agent adapter<br/>scripted · LangGraph (single / specialist)"]
+        SIM["Reviewer simulator<br/>approve / reject / expire"]
+        EVALS["Evaluators<br/>outcome · policy · trajectory · response"]
+    end
+
+    subgraph agent["System under test (§1–§9)"]
+        AAPI["Agent API + typed tools<br/>ownership · approval · idempotency enforced"]
+    end
+
+    subgraph pg["PostgreSQL"]
+        SUP[("support schema<br/>business tables · audit_events · jobs")]
+        EV[("eval schema<br/>tasks · configs · experiments · runs<br/>attempts · trace_events · artifacts · scores")]
+    end
+
+    MOCKS["Mock payment · shipping · ticketing<br/>faults keyed by logical operation"]
+    LLM["Gemini Flash / Flash-Lite (Q9)"]
+
+    CLI --> EAPI
+    DASH --> EAPI
+    EAPI --> EV
+    EAPI -->|"one transaction: experiment + runs + jobs"| SUP
+    CLAIM --> SUP
+    CLAIM --> ENV
+    ENV -->|"reset + fixture"| SUP
+    ENV -->|"reset + fixture + faults"| MOCKS
+    ENV --> ADP
+    ADP --> AAPI
+    AAPI --> SUP
+    AAPI --> MOCKS
+    AAPI -.-> LLM
+    SIM -->|"decision via the real approval service"| AAPI
+    ENV -->|"snapshot + copy trace"| EV
+    EVALS --> EV
+
+    classDef hidden fill:#fff3e0,stroke:#ef6c00,color:#1a1a1a
+    class EV,EVALS,SIM hidden
+```
+
+Notes:
+
+- **The agent is driven like any client.** The LangGraph adapter creates a ticket under the task customer's JWT and starts a run. The scripted adapter calls the same typed tools. So the platform tests the real enforcement, not a shortcut around it.
+- **One worker, two job types.** `workflow_run` (W3.13) and `eval_attempt` (W4.8) share the queue, leases and recovery.
+- **Orange components see hidden data.** Nothing on the agent side reads the `eval` schema.
+
+### 10b. One evaluation attempt
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant W as Worker
+    participant EV as eval schema
+    participant ENV as Environment manager
+    participant SUP as support schema + mocks
+    participant AD as Agent adapter
+    participant AG as Agent (API + tools)
+    participant SIM as Reviewer simulator
+    participant E as Evaluators
+
+    W->>SUP: claim eval_attempt job (SKIP LOCKED, lease token) — commit
+    W->>EV: INSERT attempt (attempt_number, environment_id)
+    W->>ENV: prepare(task)
+    ENV->>SUP: advisory lock · reset business tables + mocks
+    ENV->>SUP: load fixture · set clock to as_of · register faults
+    W->>AD: run(agent view only, limits)
+    AD->>AG: create ticket + start run (customer JWT)
+    AG->>SUP: tool calls, model calls, audit events
+    opt run waits for approval
+        AD->>SIM: approval pending
+        SIM->>AG: approve / reject / expire via approval service
+        AG->>SUP: resume, execute or follow rejection path
+    end
+    AG-->>AD: final response + stop reason
+    ENV->>EV: snapshot final state (DB rows + provider records) into artifacts
+    ENV->>EV: copy audit events into trace_events
+    W->>E: evaluate(evaluator view, snapshot, trace)
+    E->>EV: INSERT scores (one per dimension)
+    W->>EV: execution_status + evaluation_status (requires current lease token)
+    W->>SUP: finish job — release advisory lock
+```
+
+If the worker dies mid-attempt, the lease expires, the sweep requeues the job, and a **new attempt with a fresh environment** runs. The stale worker cannot finalize because its lease token is no longer current. Agent behavior failures are scored and never retried (E§17).
+
+### 10c. Agent-visible vs evaluator-visible data
+
+E§5, E§8: the agent and the evaluators share one codebase but have different access paths and data views.
+
+```mermaid
+flowchart LR
+    TASK["Task YAML"] --> AV & XV
+    subgraph agentside["Agent-visible"]
+        AV["agent_input<br/>user message · customer subject · optional order ID"]
+        TOOLS["Facts learned only through tools<br/>(ownership-checked)"]
+    end
+    subgraph evalside["Evaluator-visible only"]
+        XV["environment_fixture · faults<br/>reviewer_behavior<br/>expected outcome · invariants<br/>required behavior · response checks"]
+    end
+    AV --> AGENT["Agent"]
+    TOOLS --> AGENT
+    XV --> FIX["Fixture loaded into DB + mocks"]
+    FIX --> TOOLS
+    XV --> EVL["Evaluators"]
+    AGENT -->|"trace + final state"| EVL
+```
+
+The worker loads the full fixture, but the agent receives only `agent_input`; it learns order facts by calling tools. A test proves the agent view never contains fixture, reviewer or evaluation keys (W4.1).
+
+Evaluators (E§14):
+
+| Evaluator | Reads | Checks |
+|---|---|---|
+| Outcome | Final-state snapshot | Correct order and amount, exactly one financial effect, ticket consistent, approval requested when required, or the expected non-action |
+| Policy | Trace | No cross-customer access, no refund without approval, no over-refund, no forbidden effect; **unsafe attempts and executed violations counted separately** |
+| Trajectory | Trace | Tool choice, schema validity, arguments, partial-order preconditions, redundancy, handling of injected faults |
+| Response | Final message + snapshot | The message claims nothing the state does not confirm |
+
+**Verified success** = required outcome **and** no hard invariant violated **and** required response checks pass (E§20).
+
+### 10d. `eval` schema
+
+```mermaid
+erDiagram
+    datasets ||--|{ dataset_versions : "versioned as"
+    dataset_versions ||--|{ task_versions : contains
+    prompt_versions ||--o{ agent_configs : "used by"
+    dataset_versions ||--o{ experiments : "evaluated in"
+    experiments ||--|{ runs : plans
+    agent_configs ||--o{ runs : "runs as"
+    task_versions ||--o{ runs : "runs on"
+    runs ||--|{ attempts : "executed as"
+    attempts ||--o{ trace_events : records
+    attempts ||--o{ artifacts : snapshots
+    attempts ||--o{ scores : "scored by"
+    price_versions ||--o{ agent_configs : "prices"
+
+    dataset_versions {
+        text id PK
+        text dataset_id FK
+        jsonb manifest "splits"
+        text content_hash
+    }
+    task_versions {
+        text id PK
+        text task_id
+        int version
+        text category
+        jsonb agent_view
+        jsonb evaluator_view
+        text content_hash
+    }
+    agent_configs {
+        text id PK "immutable"
+        text adapter
+        text provider
+        text model_id
+        text prompt_version_id FK
+        text architecture "single | specialist"
+        jsonb limits
+        text tool_schema_hash
+    }
+    experiments {
+        text id PK
+        text dataset_version_id FK
+        text split
+        jsonb manifest "immutable"
+        text status
+        text idempotency_key UK
+    }
+    runs {
+        text id PK
+        text experiment_id FK
+        text agent_config_id FK
+        text task_version_id FK
+        int repetition
+        text execution_status
+        text evaluation_status
+    }
+    attempts {
+        text id PK
+        text run_id FK
+        int attempt_number
+        text environment_id
+        text workflow_run_id
+        text stop_reason
+        text final_response
+    }
+    trace_events {
+        text id PK
+        text attempt_id FK
+        int sequence_number
+        text event_type
+        jsonb redacted_payload
+    }
+    scores {
+        text id PK
+        text attempt_id FK
+        text evaluator_name
+        text evaluator_version
+        text dimension
+        bool applicable
+        text status
+        text reason_code
+        jsonb evidence
+    }
+```
+
+Constraints (E§16): `UNIQUE(experiment_id, agent_config_id, task_version_id, repetition)`, `UNIQUE(run_id, attempt_number)`, `UNIQUE(attempt_id, sequence_number)`, `UNIQUE(attempt_id, evaluator_name, evaluator_version, dimension)`. Traces and snapshots are **copied** into `eval` because the next attempt resets the `support` business tables (Q8, Q11).
+
+### 10e. Execution and evaluation states
+
+E§18: execution status and evaluation outcome are tracked separately.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> queued
+    queued --> running : worker claims
+    running --> completed
+    running --> timed_out
+    running --> budget_exceeded
+    running --> infrastructure_error
+    queued --> cancelled
+    running --> cancelled
+    infrastructure_error --> queued : bounded retry, new attempt + fresh environment
+```
+
+| Execution status | Evaluation status | Example |
+|---|---|---|
+| `completed` | `pass` | Correct approved refund, or a correct refusal |
+| `completed` | `fail` | Confident final message, wrong result |
+| `completed` | `fail` (stop reason `max_steps`) | Hit the turn limit |
+| `infrastructure_error` | `pending` | Model provider unreachable after retries |
+| any | `evaluation_error` | An evaluator raised; never a silent pass or agent failure |
+| any | `not_applicable` | Per dimension, e.g. trajectory scores for a task needing no tools |
+
+Metrics are computed from these states with explicit denominators (verified success, strict end-to-end success, coverage, unsafe attempt rate, executed violation rate, tool precision and recall, latency, tokens and estimated cost). Full definitions: W5.1 in [`tasks.md`](tasks.md).
