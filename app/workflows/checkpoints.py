@@ -16,11 +16,16 @@ CHECKPOINT_SCHEMA = "langgraph"
 
 @lru_cache
 def get_checkpointer() -> BaseCheckpointSaver:
+    return postgres_checkpointer(get_settings().database_url)
+
+
+def postgres_checkpointer(database_url: str) -> BaseCheckpointSaver:
+    """A saver on its own connection, with its tables in the `langgraph` schema."""
     from langgraph.checkpoint.postgres import PostgresSaver
     from psycopg import Connection
     from psycopg.rows import dict_row
 
-    url = make_url(get_settings().database_url).set(drivername="postgresql")
+    url = make_url(database_url).set(drivername="postgresql")
     connection = Connection.connect(
         url.render_as_string(hide_password=False),
         autocommit=True,

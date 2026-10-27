@@ -2,13 +2,14 @@
 
 from fastapi import FastAPI
 
-from app.api import health, tickets
+from app.api import health, runs, tickets
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Customer Support Resolution Agent")
     app.include_router(health.router)
     app.include_router(tickets.router)
+    app.include_router(runs.router)
     return app
 
 

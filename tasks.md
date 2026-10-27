@@ -264,11 +264,11 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
   - route to **answer only**, **request approval** or **escalate to human**
 - [x] **W2.12 — Ordinary code, not the LLM, for** (§6): authentication, access control, amount calculations, eligibility enforcement, approval validation, API execution, retry limits and state transitions. **Done:** every route is chosen by code; the validator rejects evidence refs or citations the tools did not return, unverified orders, and amounts the eligibility code does not allow.
 - [x] **W2.13 — Missing-information loop** (§4, §14). Ask a targeted clarification question, pause, and resume when `POST /runs/{run_id}/messages` supplies the additional information. **Done:** `interrupt()` in its own node (side effects happen in the node before it), checkpoints in a separate `langgraph` schema (`app/workflows/checkpoints.py`), `resume_with_message` in `app/workflows/runner.py`; the order question lists the customer's recent orders; at most 2 rounds, then escalation.
-- [ ] **W2.14 — Run endpoints** (§13):
-  - [ ] `POST /tickets/{ticket_id}/runs`: start a resolution workflow.
-  - [ ] `GET /runs/{run_id}`: retrieve status and output.
-  - [ ] `GET /runs/{run_id}/events`: retrieve a **redacted** event timeline.
-  - [ ] `POST /runs/{run_id}/messages`: supply additional customer information.
+- [x] **W2.14 — Run endpoints** (§13) (**done:** `app/api/runs.py`; inline execution per Q7, 503 with a clear message when `LLM_MODEL` / `LLM_API_KEY` are not set):
+  - [x] `POST /tickets/{ticket_id}/runs`: start a resolution workflow (409 `RUN_ALREADY_ACTIVE` if one is unfinished).
+  - [x] `GET /runs/{run_id}`: retrieve status and output (`workflow_runs.output`, migration 0014).
+  - [x] `GET /runs/{run_id}/events`: retrieve a **redacted** event timeline (the run's customer or any reviewer).
+  - [x] `POST /runs/{run_id}/messages`: supply additional customer information (409 `RUN_NOT_WAITING` unless the run waits for the customer).
 - [x] **W2.15 — Model-output guardrails** (§14). On invalid model output: validate, attempt a limited repair, then stop or escalate. Stop at a configured **step or cost limit** to prevent excessive workflow loops. **Done:** one repair attempt (`model_output_invalid` events), then escalation with `stop_reason=invalid_model_output`; `RunBudget` caps model + tool calls (`MAX_WORKFLOW_STEPS`) and tokens (`MAX_RUN_TOKENS`) per run, across pauses, with `run_halted` recorded.
 - [x] **W2.16 — Record every model call and keep the agent configurable** (E§11, E§21, E§22). Added 2026-10-27 so the Week 4 evaluation platform can measure and compare the agent:
   - [x] Every model call writes a `model_call` audit event (W3.15 shape): provider, **resolved model ID**, prompt version, input / output / cached tokens **as reported by the provider**, latency (monotonic clock), retry number and outcome. Missing usage is stored as `null` (unknown), never `0`.
@@ -277,6 +277,8 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
   - [x] Model ID, prompt version and architecture (`single` for W2.9, `specialist` for W2.10) come from one **agent configuration** object, not from scattered constants. The evaluation platform registers these as `agent_configs` (W4.3). (`app/agents/config.py`, `AGENT_ARCHITECTURE` / `AGENT_PROMPT_VERSION` settings.)
 
 **Gate check:** the headphones refund example produces a schema-valid proposal with evidence refs and policy citations, and the business-rule validator accepts it. Every model call in that run appears in the audit trail with its token usage.
+
+**Gate status (2026-10-27):** passes with the scripted model (`tests/integration/test_workflow.py::test_headphones_refund_produces_a_validated_proposal_with_citations`, specialist and single architectures). The real-Gemini run is `uv run pytest -m llm tests/integration/test_week2_gate_llm.py`; it is pending until `LLM_MODEL` (Flash, from AI Studio) and `LLM_API_KEY` are set in `.env`.
 
 ---
 

@@ -87,6 +87,28 @@ def get_run(db: Session, customer: AuthenticatedCustomer, run_id: str) -> RunVie
     return RunView.model_validate(run._mapping)
 
 
+def get_run_for_reviewer(db: Session, run_id: str) -> RunView:
+    """Reviewers may inspect any run (they decide its approvals)."""
+    run = db.execute(
+        text(f"SELECT {RUN_COLUMNS} FROM {SCHEMA}.workflow_runs WHERE id = :run"), {"run": run_id}
+    ).one_or_none()
+    if run is None:
+        raise run_not_found()
+    return RunView.model_validate(run._mapping)
+
+
+def list_run_events(db: Session, run_id: str) -> list[dict[str, Any]]:
+    """The run's redacted audit timeline, oldest first. Access is checked by the caller."""
+    rows = db.execute(
+        text(
+            "SELECT id, created_at, actor, event_type, redacted_payload AS payload "
+            f"FROM {SCHEMA}.audit_events WHERE run_id = :run ORDER BY id"
+        ),
+        {"run": run_id},
+    ).all()
+    return [dict(row._mapping) for row in rows]
+
+
 def set_run_output(db: Session, run_id: str, output: dict[str, Any]) -> None:
     """Store the run's latest result in the caller's transaction."""
     db.execute(

@@ -21,6 +21,7 @@ from app.schemas.tickets import TicketCreate
 from app.services.errors import ServiceFailure
 from app.services.providers import ProviderClient
 from app.services.tickets import create_ticket, get_ticket
+from app.workflows.checkpoints import postgres_checkpointer
 from app.workflows.runner import WorkflowServices, resume_with_message, start_resolution
 from mock_services.payments.main import app as payments_app
 from mock_services.payments.main import settings as payments_settings
@@ -375,6 +376,43 @@ def test_missing_order_is_asked_for_and_the_reply_resumes_the_run(
     assert resumed.status == "waiting_for_approval"
     assert resumed.output["order_id"] == "ord_1001"
     assert "customer_message" in event_types(db, paused.id)
+
+
+def test_pause_and_resume_survive_in_the_postgres_checkpointer(
+    db: Session, make_services, providers, database_url: str
+) -> None:
+    payments, _ = providers
+    base = headphones_scenario(*refund_ids(db, payments))
+    scenario = replace(
+        base,
+        outputs={**base.outputs, "classifier": {**base.outputs["classifier"], "order_id": None}},
+        plans={
+            **base.plans,
+            "investigation": lambda call: (
+                base.plans["investigation"]
+                if "ord_1001" in call.messages[0].text
+                else [[("list_orders", {})]]
+            ),
+        },
+    )
+    saver = postgres_checkpointer(database_url)
+    paused = start_resolution(
+        db,
+        ALICE,
+        open_ticket(db, "Where is my refund?", None),
+        replace(make_services(scenario), checkpointer=saver),
+    )
+    assert paused.status == "waiting_for_customer"
+
+    # A new saver instance, as after an application restart: state comes from PostgreSQL.
+    restarted = replace(make_services(scenario), checkpointer=postgres_checkpointer(database_url))
+    resumed = resume_with_message(db, ALICE, paused.id, "ord_1001", restarted)
+
+    assert resumed.status == "waiting_for_approval"
+    tables = db.execute(
+        text("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'langgraph'")
+    ).scalar_one()
+    assert tables > 0
 
 
 def test_reply_to_a_run_that_is_not_waiting_is_refused(
