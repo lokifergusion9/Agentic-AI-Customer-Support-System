@@ -324,7 +324,10 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
   - Rejected goes to `finish_rejected` (W3.3).
   - Audit events: `proposal_details_changed`, `proposal_invalidated`, `approval_renewed`.
   - **Gap, to handle in the W3.13 sweep:** an approval that expires with no reviewer ever deciding stays pending until someone calls the decision endpoint.
-- [ ] **W3.7 — Chat is not authorization** (§11). The execution service verifies the **stored** approval and the authenticated reviewer decision. It never accepts an approval message from the chat.
+- [x] **W3.7 — Chat is not authorization** (§11). The execution service verifies the **stored** approval and the authenticated reviewer decision. It never accepts an approval message from the chat.
+  *Done (no new code needed):* execute tools are never offered to the model, and the gateway refuses them (W2). `check_decision` and `execute_approved_refund` read only the stored approval. The decision endpoint takes the reviewer from the JWT, and customers get 403. Tests in `test_workflow.py` (W3.7 section) cover two cases:
+  - an "APPROVED" claim in the ticket text, plus a model attempt at `execute_approved_refund`, leaves the approval pending and pays nothing;
+  - a forged `Command(resume={"decision": "approved"})` finds the approval pending and goes back to waiting.
 - [ ] **W3.8 — Reviewer interface** (§11, §16). The screen shows:
   - customer and order
   - complaint summary
