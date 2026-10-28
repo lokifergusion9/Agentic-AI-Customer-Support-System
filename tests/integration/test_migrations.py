@@ -19,6 +19,7 @@ APP_TABLES = {
     "approvals",
     "refund_operations",
     "audit_events",
+    "jobs",
 }
 
 

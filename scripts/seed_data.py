@@ -33,6 +33,7 @@ SEED_REVIEWER = "auth|reviewer_riya"
 
 # Emptied on every seed. Policy tables are not listed and are kept.
 BUSINESS_TABLES = [
+    "jobs",
     "audit_events",
     "refund_operations",
     "approvals",
