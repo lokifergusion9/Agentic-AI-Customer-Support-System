@@ -346,7 +346,7 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
 
 ### Idempotent refunds
 
-- [ ] **W3.9 — Refund execution pattern** (§12):
+- [x] **W3.9 — Refund execution pattern** (§12):
   1. Create a durable refund operation with a **stable idempotency key**.
   2. In a short DB transaction, validate the approval and **reserve** the refundable amount (`SELECT ... FOR UPDATE`).
   3. **Commit before** calling the external service. Never hold the transaction open during the network call.
@@ -356,9 +356,25 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
   7. Query the provider by key or reference before deciding the next step.
   8. Retry using the **same key** only when the provider contract supports it.
 
-  *Steps 1–6 and 8 already built in W1.15* (`app/services/refunds.py`: key `refund:<proposal_id>`, reserve and commit before the call, `unknown` on timeout, a retry resends the same key). What remains: step 7 (query the provider before deciding), which W3.12 adds.
-- [ ] **W3.10 — Concurrency control** (§12). Two concurrent requests for the same order can never over-reserve the refundable balance.
-- [ ] **W3.11 — Verify the external result** (§4). The run never reports success until the provider result is confirmed.
+  *Steps 1–6 and 8 already built in W1.15* (`app/services/refunds.py`: key `refund:<proposal_id>`, reserve and commit before the call, `unknown` on timeout, a retry resends the same key).
+  *Step 7 done:* `refunds.confirm_refund(db, payments, proposal_id)` and `execute_approved_refund` on an existing operation never decide from local state. They ask the provider with `GET /refunds?idempotency_key=` first:
+  - If the provider has the refund, its status is recorded (`refund_reconciled`) and nothing is sent.
+  - If it has no record of a `reserved`/`unknown` operation, the same key and payload are resent.
+  - If it has no record of a `submitted` one, nothing is done (that is for a person to look at).
+  - If the provider is unreachable, the operation stays as it is.
+  - Tests are in `test_refund_execution.py`. The real accept-then-timeout case is confirmed without a second POST.
+- [x] **W3.10 — Concurrency control** (§12). Two concurrent requests for the same order can never over-reserve the refundable balance.
+  *Done:* the W1.3 trigger locks the order row `FOR UPDATE` and rejects over-reservation, and the unique idempotency key stops a duplicate. `execute_approved_refund` now turns these into service results instead of raw DB errors:
+  - a second proposal over the balance gets `REFUND_EXCEEDS_BALANCE`;
+  - the same proposal racing itself continues with the one stored operation.
+  - `tests/integration/test_refund_concurrency.py` runs both races with committed data, separate sessions in threads, and a live mock: exactly one reservation and one provider refund each time.
+- [x] **W3.11 — Verify the external result** (§4). The run never reports success until the provider result is confirmed.
+  *Done:* `execute_refund → verify_refund` asks the provider (via `confirm_refund`) up to `VERIFY_ATTEMPTS = 3` times with backoff.
+  - `succeeded` goes to `finish_refunded` (with the provider reference).
+  - `failed` goes to `finish_refund_failed` (escalated, "no refund has been issued").
+  - Anything else goes to `report_pending`. The ticket is set to `open` and the customer is told the refund was sent but is not confirmed yet. The run stays `running` and pauses at `await_provider`.
+  - `runner.resume_after_provider(db, run_id, services)` checks the provider again (the W3.12 sweep calls it); it does nothing unless the run is paused there.
+  - The old `refund_unconfirmed` escalation is gone.
 
 ### Recovery, tickets and audit
 

@@ -144,6 +144,32 @@ def resume_after_decision(db: Session, approval_id: str, services: WorkflowServi
     return invoke(db, customer, run, rt, services, Command(resume={"approval_id": approval_id}))
 
 
+def resume_after_provider(db: Session, run_id: str, services: WorkflowServices) -> RunView:
+    """W3.11/W3.12: check a run waiting for the provider to confirm its refund again.
+
+    The workflow asks the provider itself; the resume value carries nothing. A run that is
+    not paused on the provider is returned unchanged.
+    """
+    owner = db.execute(
+        text(
+            "SELECT c.id AS customer_id, c.external_auth_subject "
+            f"FROM {SCHEMA}.workflow_runs r JOIN {SCHEMA}.tickets t ON t.id = r.ticket_id "
+            f"JOIN {SCHEMA}.customers c ON c.id = t.customer_id WHERE r.id = :run"
+        ),
+        {"run": run_id},
+    ).one_or_none()
+    if owner is None:
+        raise ServiceFailure("RUN_NOT_FOUND", "No run with this ID was found.")
+    customer = AuthenticatedCustomer(owner.customer_id, owner.external_auth_subject)
+    run = get_run(db, customer, run_id)
+    rt = runtime(db, customer, run, services, steps_used=0, tokens_used=0)
+    if "await_provider" not in paused_state(rt, services, run).next:
+        return run
+    rt.recorder.record("system:workflow", "run_resumed", {"waiting_for": "provider"})
+    restore_budget(rt, services, run)
+    return invoke(db, customer, run, rt, services, Command(resume={"check": "provider"}))
+
+
 def paused_state(rt: AgentRuntime, services: WorkflowServices, run: RunView) -> StateSnapshot:
     graph = build_graph(rt).compile(checkpointer=services.checkpointer)
     return graph.get_state({"configurable": {"thread_id": run.thread_id}})

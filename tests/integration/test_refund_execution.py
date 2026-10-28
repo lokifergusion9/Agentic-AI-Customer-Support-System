@@ -12,7 +12,7 @@ from app.services.approvals import decide_approval
 from app.services.eligibility import check_refund_eligibility
 from app.services.errors import ServiceFailure
 from app.services.providers import ProviderClient
-from app.services.refunds import execute_approved_refund, idempotency_key
+from app.services.refunds import confirm_refund, execute_approved_refund, idempotency_key
 from mock_services.payments.main import app as payments_app
 from mock_services.payments.main import settings as payments_settings
 from scripts.seed_data import push_mock_payments, seed
@@ -342,3 +342,83 @@ def test_a_payload_that_no_longer_matches_the_approval_is_not_executed(
     assert result.error_code == "APPROVAL_REQUIRED"
     assert provider_refunds(payments, "ord_1001") == []
     assert operations(db, "ord_1001") == []
+
+
+# --- W3.9 step 7 / W3.11: ask the provider before deciding -----------------------------------
+
+
+def events_of(db: Session, run_id: str) -> list[str]:
+    return list(
+        db.execute(
+            text("SELECT event_type FROM support.audit_events WHERE run_id = :r ORDER BY id"),
+            {"r": run_id},
+        ).scalars()
+    )
+
+
+def test_uncertain_refund_is_found_by_key_and_not_sent_again(
+    db: Session, payments: ProviderClient
+) -> None:
+    """The provider has the refund: record it, do not call POST /refunds again."""
+    proposal = approved(db, payments)
+    with serve(payments_app) as url:
+        with httpx.Client(base_url=url, headers=HEADERS) as admin:
+            push_mock_payments(admin, TODAY)
+            admin.post("/admin/faults", json={"mode": "accept_then_timeout", "delay_seconds": 1})
+        slow = ProviderClient("payment", httpx.Client(base_url=url, headers=HEADERS, timeout=0.3))
+        assert execute_approved_refund(db, slow, proposal.proposal_id).status == "unknown"
+        # Any new refund request would now fail: proof that confirming sends none.
+        slow.http.post("/admin/faults", json={"mode": "error", "retryable": False})
+
+        confirmed = confirm_refund(db, slow, proposal.proposal_id)
+
+        assert confirmed.status == "succeeded"
+        assert len(slow.get("/refunds", params={"order_id": "ord_1001"})) == 1
+    types = events_of(db, proposal.run_id)
+    assert types.count("refund_executed") == 1 and "refund_reconciled" in types
+
+
+def test_uncertain_refund_unknown_to_the_provider_is_resent_with_the_same_key(
+    db: Session, payments: ProviderClient
+) -> None:
+    proposal = approved(db, payments)
+    payments.http.post("/admin/faults", json={"mode": "error"})  # 503, retryable, not recorded
+    first = execute_approved_refund(db, payments, proposal.proposal_id)
+    assert first.status == "unknown"
+    assert provider_refunds(payments, "ord_1001") == []
+
+    confirmed = confirm_refund(db, payments, proposal.proposal_id)
+
+    assert confirmed.status == "succeeded"
+    [refund] = provider_refunds(payments, "ord_1001")
+    assert refund["idempotency_key"] == first.idempotency_key
+
+
+def test_unreachable_provider_leaves_the_operation_uncertain(
+    db: Session, payments: ProviderClient
+) -> None:
+    proposal = approved(db, payments)
+    payments.http.post("/admin/faults", json={"mode": "error"})
+    execute_approved_refund(db, payments, proposal.proposal_id)
+    for _ in range(3):
+        payments.http.post("/admin/faults", json={"mode": "error"})
+
+    still = confirm_refund(db, payments, proposal.proposal_id)
+
+    assert still.status == "unknown"  # neither succeeded nor failed until the provider says
+
+
+def test_pending_refund_is_confirmed_when_the_provider_settles(
+    db: Session, payments: ProviderClient
+) -> None:
+    proposal = approved(db, payments)
+    payments.http.post("/admin/faults", json={"mode": "delay"})
+    submitted = execute_approved_refund(db, payments, proposal.proposal_id)
+    assert confirm_refund(db, payments, proposal.proposal_id).status == "submitted"
+
+    payments.http.post(
+        f"/admin/refunds/{submitted.provider_reference}/settle", json={"status": "succeeded"}
+    )
+
+    assert confirm_refund(db, payments, proposal.proposal_id).status == "succeeded"
+    assert proposal_status(db, proposal.proposal_id) == "executed"

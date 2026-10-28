@@ -38,7 +38,7 @@ class WorkflowState(TypedDict, total=False):
 
     # Outcome.
     # answer_only | request_approval | escalate | ask_clarification
-    # | refunded | refund_unconfirmed | rejected
+    # | refunded | refund_pending | refund_failed | rejected
     route: str | None
     validation_problems: list[str]
     proposed_action_id: str | None

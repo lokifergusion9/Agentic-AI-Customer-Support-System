@@ -33,6 +33,7 @@ from app.workflows.runner import (
     invoke,
     paused_state,
     resume_after_decision,
+    resume_after_provider,
     resume_with_message,
     runtime,
     start_resolution,
@@ -712,21 +713,66 @@ def test_approvals_are_not_renewed_forever(db: Session, make_services, providers
     assert payments.get("/payments/ord_1001")["refunds"] == []
 
 
-def test_unconfirmed_refund_is_not_reported_as_paid(db: Session, make_services, providers) -> None:
+def pending_refund(db: Session, make_services, providers):
+    """An approved refund the provider accepted but has not settled yet (W3.11)."""
     payments, _ = providers
     run, services = awaiting_review(db, make_services, providers)
     payments.http.post("/admin/faults", json={"mode": "delay"})  # provider answers "pending"
-
     decide_approval(db, RIYA, run.output["approval_id"], "approved")
-    done = resume_after_decision(db, run.output["approval_id"], services)
+    return resume_after_decision(db, run.output["approval_id"], services), services
 
-    assert done.status == "escalated"
-    assert (done.output["route"], done.output["refund_status"]) == (
-        "refund_unconfirmed",
+
+def settle(payments: ProviderClient, status: str) -> None:
+    [refund] = payments.get("/payments/ord_1001")["refunds"]
+    payments.http.post(
+        f"/admin/refunds/{refund['provider_reference']}/settle", json={"status": status}
+    )
+
+
+def test_unconfirmed_refund_is_not_reported_as_paid(db: Session, make_services, providers) -> None:
+    waiting, services = pending_refund(db, make_services, providers)
+
+    # Still open, waiting for the provider: neither paid nor failed.
+    assert waiting.status == "running"
+    assert (waiting.output["route"], waiting.output["refund_status"]) == (
+        "refund_pending",
         "submitted",
     )
-    assert "has not confirmed it yet" in done.output["final_response"]
-    assert "has been issued" not in done.output["final_response"]
+    assert "has not confirmed it yet" in waiting.output["final_response"]
+    assert "has been issued" not in waiting.output["final_response"]
+    assert paused_at(db, waiting, services) == ("await_provider",)
+    assert get_ticket(db, ALICE, waiting.ticket_id).status == "open"
+
+
+def test_pending_refund_is_reported_once_the_provider_confirms(
+    db: Session, make_services, providers
+) -> None:
+    payments, _ = providers
+    waiting, services = pending_refund(db, make_services, providers)
+    assert resume_after_provider(db, waiting.id, services).status == "running"  # not yet
+
+    settle(payments, "succeeded")
+    done = resume_after_provider(db, waiting.id, services)
+
+    assert (done.status, done.output["route"]) == ("completed", "refunded")
+    assert len(payments.get("/payments/ord_1001")["refunds"]) == 1
+    assert "refund_reconciled" in event_types(db, waiting.id)
+    assert get_ticket(db, ALICE, waiting.ticket_id).status == "resolved"
+    # Resuming a finished run changes nothing.
+    assert resume_after_provider(db, waiting.id, services).status == "completed"
+
+
+def test_refund_the_provider_fails_is_never_reported_as_paid(
+    db: Session, make_services, providers
+) -> None:
+    payments, _ = providers
+    waiting, services = pending_refund(db, make_services, providers)
+
+    settle(payments, "failed")
+    done = resume_after_provider(db, waiting.id, services)
+
+    assert (done.status, done.output["route"]) == ("escalated", "refund_failed")
+    assert "no refund has been issued" in done.output["final_response"]
 
 
 def test_approval_pause_survives_a_restart_in_the_postgres_checkpointer(

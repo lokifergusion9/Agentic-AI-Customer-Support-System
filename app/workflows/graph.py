@@ -19,10 +19,16 @@
                                                    └─ undecided ─► await_approval
 
                  revalidate (eligibility + payload hash, W3.6)
-                   ├─ unchanged, approved ─► execute_refund ─► finish_refunded
+                   ├─ unchanged, approved ─► execute_refund ─► verify_refund (below)
                    ├─ unchanged, expired ──► renew_approval ─► finish_approval (waits again)
                    ├─ changed, eligible ───► new proposal ───► finish_approval (waits again)
                    └─ no longer eligible ──► finish_escalate
+
+                 verify_refund (asks the provider by key, W3.11)
+                   ├─ succeeded ─► finish_refunded
+                   ├─ failed ────► finish_refund_failed
+                   └─ not yet ───► report_pending ─► await_provider (interrupt; resumed by the
+                                                     reconciliation sweep, W3.12) ─► verify_refund
 
 Model nodes propose; every route is decided by code. Side effects never happen in the same node
 as `interrupt()`, because an interrupted node restarts from the top when it resumes (W3.3). The
@@ -55,6 +61,7 @@ from app.services.proposals import (
     refund_payload,
     renew_approval,
 )
+from app.services.refunds import FINAL, confirm_refund
 from app.services.runs import set_run_output, set_run_status
 from app.tools.gateway import ToolGateway
 from app.workflows.state import WorkflowState
@@ -63,6 +70,9 @@ from app.workflows.validation import validate_proposal
 MAX_CLARIFICATION_ROUNDS = 2
 # Approvals asked for in one run (the first, plus renewals and re-proposals, W3.6).
 MAX_APPROVAL_ROUNDS = 3
+# Provider checks in one go before the run waits for the reconciliation sweep (W3.11).
+VERIFY_ATTEMPTS = 3
+VERIFY_BACKOFF_SECONDS = 1.0
 ORDER_ID = re.compile(r"\bord_\d+\b")
 WORKFLOW = "system:workflow"
 
@@ -360,37 +370,80 @@ def build_graph(rt: AgentRuntime) -> StateGraph:
             "external_result_reference": operation["provider_reference"],
         }
 
+    def verify_refund_node(state: GraphState) -> dict[str, Any]:
+        """W3.11: the run reports nothing until the provider confirms the refund's outcome.
+
+        Asks the provider by idempotency key a few times with a short backoff. A final status
+        ends the check; anything else leaves the operation for the reconciliation sweep.
+        """
+        status = state.get("execution_status")
+        reference = state.get("external_result_reference")
+        for attempt in range(VERIFY_ATTEMPTS):
+            if status in FINAL:
+                break
+            if attempt:
+                rt.sleep(VERIFY_BACKOFF_SECONDS * attempt)
+            try:
+                with ctx.lock:
+                    operation = confirm_refund(ctx.db, ctx.payments, state["proposed_action_id"])
+            except ServiceFailure as failure:
+                return {"route": "escalate", "validation_problems": [failure.error_code]}
+            status, reference = operation.status, operation.provider_reference
+        return {"execution_status": status, "external_result_reference": reference}
+
+    def amount_text(state: GraphState) -> str:
+        return f"₹{state['proposal']['amount_minor'] / 100:,.2f}"
+
     def finish_refunded_node(state: GraphState) -> dict[str, Any]:
-        proposal = state["proposal"]
-        amount = f"₹{proposal['amount_minor'] / 100:,.2f}"
-        if state.get("execution_status") == "succeeded":
-            response = (
-                f"Your refund of {amount} for order {proposal['order_id']} has been issued and "
-                "the payment provider confirmed it (reference "
-                f"{state.get('external_result_reference')})."
-            )
-            finish(
-                state,
-                run_status="completed",
-                ticket_status="resolved",
-                response=response,
-                route="refunded",
-            )
-        else:
-            # Pending, failed or uncertain: claim no more than the provider confirmed (W3.11).
-            response = (
-                f"Your refund of {amount} for order {proposal['order_id']} was approved, but the "
-                "payment provider has not confirmed it yet. A member of our support team will "
-                "check it and update this ticket."
-            )
-            finish(
-                state,
-                run_status="escalated",
-                ticket_status="escalated",
-                response=response,
-                route="refund_unconfirmed",
-            )
+        response = (
+            f"Your refund of {amount_text(state)} for order {state['proposal']['order_id']} has "
+            "been issued and the payment provider confirmed it (reference "
+            f"{state.get('external_result_reference')})."
+        )
+        finish(
+            state,
+            run_status="completed",
+            ticket_status="resolved",
+            response=response,
+            route="refunded",
+        )
         return {"final_response": response}
+
+    def finish_refund_failed_node(state: GraphState) -> dict[str, Any]:
+        response = (
+            f"Your refund of {amount_text(state)} for order {state['proposal']['order_id']} was "
+            "approved, but the payment provider could not complete it, so no refund has been "
+            "issued. A member of our support team will follow up on this ticket."
+        )
+        finish(
+            state,
+            run_status="escalated",
+            ticket_status="escalated",
+            response=response,
+            route="refund_failed",
+        )
+        return {"final_response": response}
+
+    def report_pending_node(state: GraphState) -> dict[str, Any]:
+        # Claim no more than the provider confirmed; the run stays open until it does.
+        response = (
+            f"Your refund of {amount_text(state)} for order {state['proposal']['order_id']} was "
+            "approved and sent to the payment provider, which has not confirmed it yet. We "
+            "will update this ticket as soon as it does."
+        )
+        finish(
+            state,
+            run_status=None,
+            ticket_status="open",
+            response=response,
+            route="refund_pending",
+        )
+        return {"final_response": response}
+
+    def await_provider_node(state: GraphState) -> dict[str, Any]:
+        # Nothing else happens here: on resume this node restarts from the top (W3.3).
+        interrupt({"refund_operation_id": state.get("refund_operation_id")})
+        return {}
 
     def finish_rejected_node(state: GraphState) -> dict[str, Any]:
         response = (
@@ -569,7 +622,14 @@ def build_graph(rt: AgentRuntime) -> StateGraph:
 
     def after_execute(state: GraphState) -> str:
         failed = state.get("halted") or state.get("route") == "escalate"
-        return "finish_escalate" if failed else "finish_refunded"
+        return "finish_escalate" if failed else "verify_refund"
+
+    def after_verify(state: GraphState) -> str:
+        if state.get("halted") or state.get("route") == "escalate":
+            return "finish_escalate"
+        return {"succeeded": "finish_refunded", "failed": "finish_refund_failed"}.get(
+            state.get("execution_status") or "", "report_pending"
+        )
 
     graph = StateGraph(GraphState)
     for name, node in [
@@ -590,13 +650,17 @@ def build_graph(rt: AgentRuntime) -> StateGraph:
         ("revalidate", revalidate_node),
         ("renew_approval", renew_approval_node),
         ("execute_refund", execute_refund_node),
+        ("verify_refund", verify_refund_node),
         ("finish_refunded", finish_refunded_node),
+        ("finish_refund_failed", finish_refund_failed_node),
+        ("report_pending", report_pending_node),
         ("finish_rejected", finish_rejected_node),
     ]:
         graph.add_node(name, guarded(node))
     # Not guarded: interrupt() works by raising, and it must propagate to LangGraph.
     graph.add_node("await_customer", await_customer_node)
     graph.add_node("await_approval", await_approval_node)
+    graph.add_node("await_provider", await_provider_node)
 
     graph.add_edge(START, "classify")
     graph.add_conditional_edges(
@@ -643,8 +707,21 @@ def build_graph(rt: AgentRuntime) -> StateGraph:
         "renew_approval", after_renew, ["finish_approval", "finish_escalate"]
     )
     graph.add_conditional_edges(
-        "execute_refund", after_execute, ["finish_refunded", "finish_escalate"]
+        "execute_refund", after_execute, ["verify_refund", "finish_escalate"]
     )
-    for name in ("finish_answer", "finish_escalate", "finish_refunded", "finish_rejected"):
+    graph.add_conditional_edges(
+        "verify_refund",
+        after_verify,
+        ["finish_refunded", "finish_refund_failed", "report_pending", "finish_escalate"],
+    )
+    graph.add_edge("report_pending", "await_provider")
+    graph.add_edge("await_provider", "verify_refund")
+    for name in (
+        "finish_answer",
+        "finish_escalate",
+        "finish_refunded",
+        "finish_refund_failed",
+        "finish_rejected",
+    ):
         graph.add_edge(name, END)
     return graph
