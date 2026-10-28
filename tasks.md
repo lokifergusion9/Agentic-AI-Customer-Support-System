@@ -288,8 +288,8 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
 
 ### Human approval
 
-- [ ] **W3.1 — Immutable proposals** (§11). Persist the proposal to `action_proposals` with its `payload_hash`. It is never edited after creation.
-  *Core already built in W1.15* (`app/services/proposals.py`, immutability trigger from W1.3). What remains: call it from the workflow's resolution step.
+- [x] **W3.1 — Immutable proposals** (§11). Persist the proposal to `action_proposals` with its `payload_hash`. It is never edited after creation.
+  *Core already built in W1.15* (`app/services/proposals.py`, immutability trigger from W1.3). The workflow's `persist_proposal` node calls it through the tool gateway (W2). `test_workflow_proposal_is_immutable_and_bound_to_its_pending_approval` covers it.
 - [ ] **W3.2 — Pending approval bound to that proposal** (§11). Create a row in `approvals` with `expires_at`.
   *Core already built in W1.15* (pending approval with `required_role` and `expires_at`; decisions in `app/services/approvals.py`). What remains: wire it to the W3.3 pause.
 - [ ] **W3.3 — Durable pause/resume** (§11). Use LangGraph `interrupt()`, a checkpointer (PostgreSQL, in separate checkpoint tables), and `Command(resume=...)` with the **same thread ID**. The interrupted node restarts on resume, so **no financial side effect may happen before `interrupt()`**. Keep the side effects in a separate execution step.

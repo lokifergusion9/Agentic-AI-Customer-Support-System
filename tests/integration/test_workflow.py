@@ -13,12 +13,14 @@ import pytest
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import InMemorySaver
 from sqlalchemy import Connection, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.agents.config import AgentConfig
 from app.policies.documents import load_policies
 from app.schemas.tickets import TicketCreate
 from app.services.errors import ServiceFailure
+from app.services.proposals import payload_hash
 from app.services.providers import ProviderClient
 from app.services.tickets import create_ticket, get_ticket
 from app.workflows.checkpoints import postgres_checkpointer
@@ -245,6 +247,53 @@ def test_headphones_refund_produces_a_validated_proposal_with_citations(
         .all()
     )
     assert all(m["input_tokens"] == 100 and m["prompt"].endswith("_v1") for m in models)
+
+
+def test_workflow_proposal_is_immutable_and_bound_to_its_pending_approval(
+    db: Session, make_services, providers
+) -> None:
+    """W3.1/W3.2: the run stores one proposal, hashed, with a pending approval of that hash."""
+    payments, _ = providers
+    services = make_services(headphones_scenario(*refund_ids(db, payments)))
+
+    run = start_resolution(db, ALICE, open_ticket(db, HEADPHONES, "ord_1001"), services)
+
+    proposals = db.execute(
+        text(
+            "SELECT id, payload, payload_hash, status FROM support.action_proposals "
+            "WHERE run_id = :r"
+        ),
+        {"r": run.id},
+    ).all()
+    assert len(proposals) == 1
+    proposal = proposals[0]
+    assert proposal.id == run.output["proposal_id"]
+    assert proposal.payload_hash == payload_hash(proposal.payload)
+    assert proposal.status == "pending_approval"
+
+    approval = db.execute(
+        text(
+            "SELECT id, approved_payload_hash, decision, decided_at, required_role, expires_at, "
+            "created_at FROM support.approvals WHERE proposal_id = :p"
+        ),
+        {"p": proposal.id},
+    ).one()
+    assert approval.id == run.output["approval_id"]
+    assert approval.approved_payload_hash == proposal.payload_hash
+    # Pending: no decision yet.
+    assert (approval.decision, approval.decided_at) == (None, None)
+    assert approval.required_role == "reviewer"
+    assert approval.expires_at > approval.created_at
+
+    with pytest.raises(DBAPIError, match="is immutable"):
+        db.execute(
+            text(
+                "UPDATE support.action_proposals SET payload = jsonb_set(payload, "
+                "'{amount_minor}', '1') WHERE id = :p"
+            ),
+            {"p": proposal.id},
+        )
+    db.rollback()
 
 
 def test_single_agent_baseline_reaches_the_same_proposal(
