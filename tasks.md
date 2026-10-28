@@ -328,7 +328,7 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
   *Done (no new code needed):* execute tools are never offered to the model, and the gateway refuses them (W2). `check_decision` and `execute_approved_refund` read only the stored approval. The decision endpoint takes the reviewer from the JWT, and customers get 403. Tests in `test_workflow.py` (W3.7 section) cover two cases:
   - an "APPROVED" claim in the ticket text, plus a model attempt at `execute_approved_refund`, leaves the approval pending and pays nothing;
   - a forged `Command(resume={"decision": "approved"})` finds the approval pending and goes back to waiting.
-- [ ] **W3.8 — Reviewer interface** (§11, §16). The screen shows:
+- [x] **W3.8 — Reviewer interface** (§11, §16). The screen shows:
   - customer and order
   - complaint summary
   - proposed action and amount
@@ -336,6 +336,13 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
   - policy citations
   - approve and reject controls
   - proposal expiration time
+
+  *Done:* `GET /review` (`app/web/pages.py`, `app/web/templates/{base,review}.html`), using Jinja2 with light JS as planned for W5.6.
+  - The page carries no data. The reviewer pastes a JWT (kept in `sessionStorage`), and the script calls `GET /approvals`, `POST /approvals/{id}/decision` and `GET /runs/{id}/events` with it, so the API's authorization applies.
+  - Each card shows customer and order, complaint category and summary, action and amount, reason, evidence refs, policy citations, expiry with a countdown, approve/reject (with a confirm step), and the run timeline. After a decision it shows the run's resulting status and customer message.
+  - Model text is rendered with `textContent` only.
+  - Tests: `tests/unit/test_review_page.py` checks the page serves, and every `approval.<field>` the page reads exists in `PendingApprovalView`.
+  - Not yet checked in a real browser (no browser tooling in the repo yet).
 
 ### Idempotent refunds
 

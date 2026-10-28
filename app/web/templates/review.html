@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}Refund Review{% endblock %}
+
+{% block content %}
+<h1>Refund approvals</h1>
+<p class="muted">
+  Every refund needs a reviewer's decision. Approving here is the only way a refund is
+  authorized; nothing a customer writes in chat counts.
+</p>
+
+<section class="panel" id="token-panel">
+  <form id="token-form">
+    <label for="token">Reviewer token (JWT)</label>
+    <textarea id="token" rows="2" autocomplete="off" spellcheck="false"
+      placeholder="uv run python -m scripts.mint_token auth|reviewer_riya --role reviewer"></textarea>
+    <div class="row" style="margin-top: 8px">
+      <button class="primary" type="submit">Load queue</button>
+      <button type="button" id="refresh">Refresh</button>
+      <span id="status" class="muted" role="status"></span>
+    </div>
+  </form>
+</section>
+
+<section id="queue" aria-live="polite"></section>
+{% endblock %}
+
+{% block script %}
+<script>
+(() => {
+  const TOKEN_KEY = "reviewer_token";
+  const tokenInput = document.getElementById("token");
+  const statusLine = document.getElementById("status");
+  const queue = document.getElementById("queue");
+
+  try { tokenInput.value = sessionStorage.getItem(TOKEN_KEY) || ""; } catch (e) {}
+
+  const rupees = (minor, currency) =>
+    new Intl.NumberFormat("en-IN", { style: "currency", currency: currency || "INR" })
+      .format(minor / 100);
+
+  // Build elements with textContent only: reasons and summaries come from the model.
+  function el(tag, attrs = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(attrs)) {
+      if (key === "class") node.className = value; else node.setAttribute(key, value);
+    }
+    for (const child of children) {
+      if (child == null) continue;
+      node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+    }
+    return node;
+  }
+
+  function list(items) {
+    if (!items || !items.length) return el("span", { class: "muted" }, "none");
+    return el("ul", { class: "plain" }, ...items.map((item) => el("li", {}, el("code", {}, item))));
+  }
+
+  function expiry(iso) {
+    const at = new Date(iso);
+    const minutes = Math.round((at - Date.now()) / 60000);
+    const left = minutes > 0 ? `in ${minutes} min` : "expired";
+    return el("span", { class: minutes <= 10 ? "warn" : "" }, `${at.toLocaleString()} (${left})`);
+  }
+
+  async function api(method, path, body) {
+    const token = tokenInput.value.trim();
+    const response = await fetch(path, {
+      method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const code = data.error_code || response.status;
+      const message = data.message || data.detail || response.statusText;
+      throw new Error(`${code}: ${typeof message === "string" ? message : JSON.stringify(message)}`);
+    }
+    return data;
+  }
+
+  function card(approval) {
+    const result = el("p", { role: "status" });
+    const timeline = el("div");
+    const approve = el("button", { class: "approve", type: "button" }, "Approve");
+    const reject = el("button", { class: "reject", type: "button" }, "Reject");
+    const showTimeline = el("button", { type: "button" }, "Show timeline");
+    const amount = rupees(approval.amount_minor, approval.currency);
+
+    async function decide(decision) {
+      const verb = decision === "approved" ? "Approve" : "Reject";
+      if (!confirm(`${verb} a refund of ${amount} for order ${approval.order_id}?`)) return;
+      approve.disabled = reject.disabled = true;
+      result.className = "muted";
+      result.textContent = "Saving the decision and resuming the run…";
+      try {
+        const body = await api("POST", `/approvals/${encodeURIComponent(approval.approval_id)}/decision`, { decision });
+        const run = body.run;
+        const output = run.output || {};
+        result.className = run.status === "completed" && output.route === "refunded" ? "ok" : "";
+        result.replaceChildren(
+          el("strong", {}, `Run ${run.status}`),
+          ` (${output.route || "no route"}). `,
+          output.final_response || "",
+        );
+      } catch (error) {
+        result.className = "bad";
+        result.textContent = error.message;
+      }
+      setTimeout(load, 2500);
+    }
+
+    approve.addEventListener("click", () => decide("approved"));
+    reject.addEventListener("click", () => decide("rejected"));
+    showTimeline.addEventListener("click", async () => {
+      try {
+        const events = await api("GET", `/runs/${encodeURIComponent(approval.run_id)}/events`);
+        timeline.replaceChildren(el("ol", { class: "plain" }, ...events.map((e) =>
+          el("li", {}, el("code", {}, e.event_type), " ",
+            el("span", { class: "muted" }, `${new Date(e.created_at).toLocaleTimeString()} · ${e.actor}`),
+            " ", el("code", { class: "muted" }, JSON.stringify(e.payload))))));
+        showTimeline.disabled = true;
+      } catch (error) {
+        timeline.replaceChildren(el("p", { class: "bad" }, error.message));
+      }
+    });
+
+    return el("article", { class: "panel", "data-approval-id": approval.approval_id },
+      el("div", { class: "row" },
+        el("h2", {}, `${amount} refund · ${approval.order_id}`),
+        el("span", { class: "tag" }, approval.required_role === "senior_reviewer" ? "senior reviewer" : "reviewer")),
+      el("dl", {},
+        el("dt", {}, "Customer"), el("dd", {}, `${approval.customer_name} (${approval.customer_id})`),
+        el("dt", {}, "Order"), el("dd", {}, el("code", {}, approval.order_id)),
+        el("dt", {}, "Complaint"), el("dd", {},
+          approval.complaint_category ? el("span", { class: "tag" }, approval.complaint_category) : null, " ",
+          approval.complaint_summary || el("span", { class: "muted" }, "no summary")),
+        el("dt", {}, "Proposed action"), el("dd", {}, `${approval.action} · ${amount}`),
+        el("dt", {}, "Reason"), el("dd", {}, approval.reason),
+        el("dt", {}, "Evidence"), el("dd", {}, list(approval.evidence_refs)),
+        el("dt", {}, "Policy citations"), el("dd", {}, list(approval.policy_refs)),
+        el("dt", {}, "Expires"), el("dd", {}, expiry(approval.expires_at)),
+        el("dt", {}, "Proposal · run"), el("dd", {},
+          el("code", {}, approval.proposal_id), " · ", el("code", {}, approval.run_id))),
+      el("div", { class: "row" }, approve, reject, showTimeline),
+      result,
+      timeline);
+  }
+
+  async function load() {
+    statusLine.textContent = "Loading…";
+    try {
+      const approvals = await api("GET", "/approvals");
+      queue.replaceChildren(...(approvals.length
+        ? approvals.map(card)
+        : [el("p", { class: "panel muted" }, "No approvals waiting for you.")]));
+      statusLine.textContent = `${approvals.length} waiting · ${new Date().toLocaleTimeString()}`;
+    } catch (error) {
+      queue.replaceChildren();
+      statusLine.textContent = error.message;
+    }
+  }
+
+  document.getElementById("token-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    try { sessionStorage.setItem(TOKEN_KEY, tokenInput.value.trim()); } catch (e) {}
+    load();
+  });
+  document.getElementById("refresh").addEventListener("click", load);
+  if (tokenInput.value) load();
+})();
+</script>
+{% endblock %}

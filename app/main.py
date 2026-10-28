@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 
 from app.api import approvals, health, runs, tickets
+from app.web import pages
 
 
 def create_app() -> FastAPI:
@@ -11,6 +12,7 @@ def create_app() -> FastAPI:
     app.include_router(tickets.router)
     app.include_router(runs.router)
     app.include_router(approvals.router)
+    app.include_router(pages.router)
     return app
 
 

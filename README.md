@@ -69,6 +69,7 @@ uv run uvicorn app.main:app --reload  # run the API on http://localhost:8000 (GE
 uv run python -m scripts.seed_data    # load the demo scenarios (resets business tables)
 uv run python -m scripts.seed_data --push-mocks  # ...and load the data into the three mocks
 uv run python -m scripts.mint_token auth|alice   # demo JWT (--role reviewer|senior_reviewer)
+# Reviewer screen: open http://localhost:8000/review and paste a reviewer JWT
 uv run pytest                  # run the tests (integration tests need PostgreSQL running)
 uv run ruff check .            # lint
 docker compose down            # stop containers (data is kept)

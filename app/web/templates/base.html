@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Support Resolution{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #5f6878;
+      --line: #dde1e8; --accent: #2f5bd3; --ok: #1f7a43; --bad: #b4232c; --warn: #9a5b00;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #14171d; --panel: #1c2028; --text: #e6e9ef; --muted: #9aa3b2;
+        --line: #2e3440; --accent: #7c9cff; --ok: #4cc27f; --bad: #ff6b74; --warn: #e3a84a;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    main { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    h2 { font-size: 17px; margin: 0; }
+    .muted { color: var(--muted); }
+    .panel {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+      padding: 16px; margin-top: 16px;
+    }
+    label { display: block; font-weight: 600; margin-bottom: 6px; }
+    input, textarea { width: 100%; font: inherit; color: inherit; background: var(--bg);
+      border: 1px solid var(--line); border-radius: 6px; padding: 8px; }
+    button { font: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 7px 14px;
+      background: var(--panel); color: var(--text); cursor: pointer; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.approve { background: var(--ok); border-color: var(--ok); color: #fff; }
+    button.reject { background: var(--bad); border-color: var(--bad); color: #fff; }
+    button:disabled { opacity: .55; cursor: default; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 12px 0; }
+    dt { color: var(--muted); }
+    dd { margin: 0; overflow-wrap: anywhere; }
+    code { font-size: 13px; }
+    .tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 99px;
+      border: 1px solid var(--line); color: var(--muted); }
+    .ok { color: var(--ok); } .bad { color: var(--bad); } .warn { color: var(--warn); }
+    ul.plain { margin: 0; padding-left: 18px; }
+    @media (max-width: 560px) { dl { grid-template-columns: 1fr; } dt { margin-top: 6px; } }
+  </style>
+</head>
+<body>
+  <main>{% block content %}{% endblock %}</main>
+  {% block script %}{% endblock %}
+</body>
+</html>
