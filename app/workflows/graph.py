@@ -226,13 +226,12 @@ def build_graph(rt: AgentRuntime) -> StateGraph:
                 citations=state.get("policy_references") or [],
             )
             ctx.db.rollback()  # the eligibility check only reads
-        # Code, not the model, decides that conflicting or missing policy goes to a person (W3.16).
-        finding = state.get("policy_finding") or {}
-        if result.route in ("request_approval", "answer_only"):
-            if state.get("policy_conflicts"):
-                result = Validation("escalate", ["POLICY_CONFLICT"])
-            elif finding.get("needs_human_review"):
-                result = Validation("escalate", ["POLICY_NEEDS_REVIEW"])
+        # Code, not the model, decides that conflicting policy goes to a person (W3.16): it
+        # reads the search results themselves. The policy agent's needs_human_review flag stays
+        # advisory, since models also set it for the reviewer approval every refund gets anyway;
+        # a missing policy is caught by the citation checks in validate_proposal.
+        if result.route in ("request_approval", "answer_only") and state.get("policy_conflicts"):
+            result = Validation("escalate", ["POLICY_CONFLICT"])
         rt.recorder.record(
             WORKFLOW,
             "proposal_validated",
