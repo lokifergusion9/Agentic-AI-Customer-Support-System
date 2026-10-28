@@ -22,7 +22,10 @@ def record_event(
     ticket_id: str | None = None,
     run_id: str | None = None,
 ) -> None:
-    """Add an audit event in the caller's transaction. `actor` is kind:id, e.g. customer:cus_1."""
+    """Add an audit event in the caller's transaction. `actor` is kind:id, e.g. customer:cus_1.
+
+    The database numbers a run's events 1, 2, 3, ... (W3.15, migration 0017).
+    """
     db.execute(
         text(
             f"INSERT INTO {SCHEMA}.audit_events "

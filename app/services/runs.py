@@ -101,8 +101,9 @@ def list_run_events(db: Session, run_id: str) -> list[dict[str, Any]]:
     """The run's redacted audit timeline, oldest first. Access is checked by the caller."""
     rows = db.execute(
         text(
-            "SELECT id, created_at, actor, event_type, redacted_payload AS payload "
-            f"FROM {SCHEMA}.audit_events WHERE run_id = :run ORDER BY id"
+            "SELECT id, sequence_number, created_at, actor, event_type, "
+            f"redacted_payload AS payload FROM {SCHEMA}.audit_events "
+            "WHERE run_id = :run ORDER BY sequence_number"
         ),
         {"run": run_id},
     ).all()

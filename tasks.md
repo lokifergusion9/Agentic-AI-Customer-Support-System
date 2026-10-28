@@ -422,15 +422,22 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
   - **Wiring:** the workflow's `update_ticket` tool uses it when `WorkflowServices.ticketing` is set (the API and worker set it; most tests leave it `None`, which keeps updates local).
   - The refund status the ticket reflects is already provider-verified (W3.11).
   - Tests in `tests/integration/test_helpdesk.py` include the full case: refund paid, final ticket update fails, the refund stays one, and only the ticket update is retried until resolved.
-- [ ] **W3.15 — Audit trail** (§7, §13). Write an `audit_events` row for every state transition, tool call, decision and external result. The payload is **redacted**. `GET /runs/{run_id}/events` serves it.
+- [x] **W3.15 — Audit trail** (§7, §13). Write an `audit_events` row for every state transition, tool call, decision and external result. The payload is **redacted**. `GET /runs/{run_id}/events` serves it.
   *Partly built in W1.15* (`app/services/audit.py` `record_event`, used by tickets, proposals, approvals and refunds).
 
   Trace requirements, added 2026-10-27 because these events become the evaluation platform's **trace** (E§19):
-  - [ ] A per-run `sequence_number`, unique per run (new migration), so events replay in exact order.
-  - [ ] Tool events are split into `tool_requested`, `tool_rejected` (blocked by validation, ownership or a precondition, with the `error_code`) and `tool_finished` (status, `error_code`, `duration_ms`). Arguments and results are stored **redacted**. A blocked attempt and an executed effect must stay distinguishable (E§12).
-  - [ ] `model_call` events from W2.16, plus `agent_finished` with the final response and stop reason (`model_final`, `max_steps`, `token_limit`, `error`).
-  - [ ] UTC timestamps for stored events, a monotonic clock for durations (E§16).
-  - [ ] Store tool results and state changes, **never private model reasoning** (E§19).
+  - [x] A per-run `sequence_number`, unique per run (new migration), so events replay in exact order.
+  - [x] Tool events are split into `tool_requested`, `tool_rejected` (blocked by validation, ownership or a precondition, with the `error_code`) and `tool_finished` (status, `error_code`, `duration_ms`). Arguments and results are stored **redacted**. A blocked attempt and an executed effect must stay distinguishable (E§12).
+  - [x] `model_call` events from W2.16, plus `agent_finished` with the final response and stop reason (`model_final`, `max_steps`, `token_limit`, `error`).
+  - [x] UTC timestamps for stored events, a monotonic clock for durations (E§16).
+  - [x] Store tool results and state changes, **never private model reasoning** (E§19).
+
+  *Done:*
+  - **Sequence numbers:** migration 0017 adds `sequence_number`, backfilled per run. A `BEFORE INSERT` trigger assigns the next number under a per-run `pg_advisory_xact_lock`, so any writer (API, worker, raw SQL) gets a distinct number. `UNIQUE(run_id, sequence_number)` and a check (numbered exactly when there is a run). The events API orders and returns by `sequence_number`.
+  - **`agent_finished`:** written at every end of turn (`finish()`, including pauses), with route, `stop_reason` (`model_final`, or `max_steps`/`token_limit` from the budget, else `error`), `halted_by`, run status and the final response. An unexpected exception writes it with `error`.
+  - **Tool events:** split since W2 (`app/tools/gateway.py`).
+  - **Timestamps and reasoning:** `timestamptz` stored in UTC; durations use `time.monotonic`. Thoughts are dropped in `app/llm/gemini.py` and only `reasoning_tokens` is counted.
+  - Tests: `tests/integration/test_audit_trail.py` (including 4 concurrent writers on one run).
 - [ ] **W3.16 — Failure-scenario tests** (§14). Add one test per row in `tests/failure_scenarios/`:
 
   | Failure | Expected behavior |

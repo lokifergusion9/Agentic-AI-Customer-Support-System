@@ -68,6 +68,8 @@ from app.workflows.state import WorkflowState
 from app.workflows.validation import validate_proposal
 
 MAX_CLARIFICATION_ROUNDS = 2
+# The trace's stop reasons (W3.15): budget limits keep their name, every other halt is an error.
+AGENT_STOP = {"max_steps": "max_steps", "token_limit": "token_limit"}
 # Approvals asked for in one run (the first, plus renewals and re-proposals, W3.6).
 MAX_APPROVAL_ROUNDS = 3
 # Provider checks in one go before the run waits for the reconciliation sweep (W3.11).
@@ -541,6 +543,19 @@ def build_graph(rt: AgentRuntime) -> StateGraph:
                 },
             )
             ctx.db.commit()
+        # The trace's end of turn (W3.15, E§19): what the customer was told and why it stopped.
+        halted_by = state.get("stop_reason")
+        rt.recorder.record(
+            WORKFLOW,
+            "agent_finished",
+            {
+                "route": route,
+                "stop_reason": AGENT_STOP.get(halted_by, "error") if halted_by else "model_final",
+                "halted_by": halted_by,
+                "run_status": run_status,
+                "final_response": response,
+            },
+        )
 
     def clarification_question(state: GraphState) -> str:
         missing = state.get("missing_information") or []

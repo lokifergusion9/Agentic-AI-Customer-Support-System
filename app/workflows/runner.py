@@ -306,5 +306,13 @@ def invoke(
         set_run_output(
             db, run.id, {"route": "failed", "stop_reason": "error", "error": type(exc).__name__}
         )
+        record_event(
+            db,
+            actor="system:workflow",
+            event_type="agent_finished",
+            payload={"route": "failed", "stop_reason": "error", "error": type(exc).__name__},
+            ticket_id=run.ticket_id,
+            run_id=run.id,
+        )
         db.commit()
     return get_run(db, customer, run.id)

@@ -20,6 +20,8 @@ class RunEventView(BaseModel):
     """One redacted audit event: IDs, statuses, amounts and counts, never message text."""
 
     id: int
+    # 1, 2, 3, ... within the run: the exact replay order (W3.15).
+    sequence_number: int
     created_at: datetime
     actor: str
     event_type: str
