@@ -293,6 +293,35 @@ def test_recheck_is_audited_before_the_reservation(db: Session, payments: Provid
     assert (recheck["outcome"], recheck["amount_minor"]) == ("eligible", 249900)
 
 
+def test_a_blocking_recheck_is_audited_and_reserves_nothing(
+    db: Session, payments: ProviderClient
+) -> None:
+    proposal = approved(db, payments)
+    payments.request(
+        "POST",
+        "/refunds",
+        json={
+            "idempotency_key": "elsewhere:1",
+            "order_id": "ord_1001",
+            "amount_minor": 249900,
+            "currency": "INR",
+        },
+    )
+
+    result = failure(lambda: execute_approved_refund(db, payments, proposal.proposal_id))
+
+    assert result.error_code == "NOT_ELIGIBLE"
+    assert operations(db, "ord_1001") == []
+    outcome = db.execute(
+        text(
+            "SELECT redacted_payload->>'outcome' FROM support.audit_events "
+            "WHERE run_id = :run AND event_type = 'eligibility_rechecked'"
+        ),
+        {"run": proposal.run_id},
+    ).scalar_one()
+    assert outcome != "eligible"
+
+
 def test_a_payload_that_no_longer_matches_the_approval_is_not_executed(
     db: Session, payments: ProviderClient
 ) -> None:

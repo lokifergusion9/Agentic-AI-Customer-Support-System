@@ -314,7 +314,16 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
   9. Execute **only the approved action**.
 
   *Done:* steps 1–7 come from W3.1–W3.4. For steps 8–9, `execute_approved_refund` now refuses with `APPROVAL_REQUIRED` when the stored payload no longer hashes to the approved hash. It audits the recheck as `eligibility_rechecked` (outcome, amount, balance) before reserving, and keeps that event even when the recheck blocks. `test_approval_lifecycle_runs_in_order` (in `test_approvals_api.py`) asserts the audit order of the 9 steps through the API. Also tested: a balance change during the wait blocks the refund, and a tampered payload is never executed.
-- [ ] **W3.6 — Invalidation** (§11, §14). If the order, the amount or other material details change, invalidate the old approval and request a new one. An expired approval requires a new valid approval. A rejected approval records the decision and follows the rejection path.
+- [x] **W3.6 — Invalidation** (§11, §14). If the order, the amount or other material details change, invalidate the old approval and request a new one. An expired approval requires a new valid approval. A rejected approval records the decision and follows the rejection path.
+  *Done:* an approved or expired decision goes to a `revalidate` node. It recomputes eligibility and the payload code would propose today, then compares hashes.
+  - **Unchanged and approved:** `execute_refund`.
+  - **Unchanged and expired:** `renew_approval` creates a new pending approval for the same immutable proposal (`proposals.renew_approval`, idempotent).
+  - **Changed but still eligible:** the old proposal is invalidated (`proposals.invalidate_proposal`; the reviewer's decision stays on its approval, and execution needs proposal status `approved`). A new proposal for the new amount gets a new approval, and the run waits again.
+  - **No longer eligible:** invalidated and escalated.
+  - At most `MAX_APPROVAL_ROUNDS = 3` approvals per run, then `TOO_MANY_APPROVAL_ROUNDS` escalates.
+  - Rejected goes to `finish_rejected` (W3.3).
+  - Audit events: `proposal_details_changed`, `proposal_invalidated`, `approval_renewed`.
+  - **Gap, to handle in the W3.13 sweep:** an approval that expires with no reviewer ever deciding stays pending until someone calls the decision endpoint.
 - [ ] **W3.7 — Chat is not authorization** (§11). The execution service verifies the **stored** approval and the authenticated reviewer decision. It never accepts an approval message from the chat.
 - [ ] **W3.8 — Reviewer interface** (§11, §16). The screen shows:
   - customer and order

@@ -45,6 +45,9 @@ class WorkflowState(TypedDict, total=False):
     approval_id: str | None
     # The stored reviewer decision, read after resuming (W3.3): approved | rejected | expired
     approval_decision: str | None
+    # How many approvals this run asked for, and what the last revalidation found (W3.6).
+    approval_rounds: int
+    revalidation: str | None  # unchanged | changed
     refund_operation_id: str | None
     execution_status: str | None  # the refund operation's status: succeeded | submitted | ...
     external_result_reference: str | None  # provider reference

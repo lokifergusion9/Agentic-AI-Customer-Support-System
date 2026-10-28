@@ -26,6 +26,7 @@ from app.services.proposals import payload_hash
 from app.services.providers import ProviderClient
 from app.services.tickets import create_ticket, get_ticket
 from app.workflows.checkpoints import postgres_checkpointer
+from app.workflows.graph import MAX_APPROVAL_ROUNDS
 from app.workflows.runner import (
     WorkflowServices,
     paused_state,
@@ -667,19 +668,45 @@ def test_rejected_refund_follows_the_rejection_path(db: Session, make_services, 
     assert get_ticket(db, ALICE, run.ticket_id).status == "resolved"
 
 
-def test_expired_approval_is_escalated_without_paying(
+def expire(db: Session, approval_id: str) -> None:
+    later = datetime.now(UTC) + timedelta(hours=2)
+    with pytest.raises(ServiceFailure, match="expired"):
+        decide_approval(db, RIYA, approval_id, "approved", now=later)
+
+
+def test_expired_approval_asks_again_for_the_same_proposal(
     db: Session, make_services, providers
 ) -> None:
+    """W3.6: unchanged facts, expired approval: a new approval of the same proposal."""
     payments, _ = providers
     run, services = awaiting_review(db, make_services, providers)
-    later = datetime.now(UTC) + timedelta(hours=2)
+    expire(db, run.output["approval_id"])
 
-    with pytest.raises(ServiceFailure, match="expired"):
-        decide_approval(db, RIYA, run.output["approval_id"], "approved", now=later)
-    done = resume_after_decision(db, run.output["approval_id"], services)
+    waiting = resume_after_decision(db, run.output["approval_id"], services)
 
-    assert done.status == "escalated"
-    assert done.output["approval_decision"] == "expired"
+    assert waiting.status == "waiting_for_approval"
+    assert waiting.output["proposal_id"] == run.output["proposal_id"]
+    assert waiting.output["approval_id"] != run.output["approval_id"]
+    assert payments.get("/payments/ord_1001")["refunds"] == []
+    assert "approval_renewed" in event_types(db, run.id)
+
+    decide_approval(db, RIYA, waiting.output["approval_id"], "approved")
+    done = resume_after_decision(db, waiting.output["approval_id"], services)
+    assert (done.status, done.output["route"]) == ("completed", "refunded")
+    assert len(payments.get("/payments/ord_1001")["refunds"]) == 1
+
+
+def test_approvals_are_not_renewed_forever(db: Session, make_services, providers) -> None:
+    payments, _ = providers
+    run, services = awaiting_review(db, make_services, providers)
+    approval_id = run.output["approval_id"]
+    for _ in range(MAX_APPROVAL_ROUNDS):
+        expire(db, approval_id)
+        current = resume_after_decision(db, approval_id, services)
+        approval_id = current.output["approval_id"]
+
+    assert current.status == "escalated"
+    assert current.output["validation_problems"] == ["TOO_MANY_APPROVAL_ROUNDS"]
     assert payments.get("/payments/ord_1001")["refunds"] == []
 
 

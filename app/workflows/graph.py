@@ -14,10 +14,15 @@
                                                            └─► request_clarification  await_approval
                                          (interrupt; resumed after the reviewer decides, W3.3) │
                                                                                                ▼
-                 check_decision (stored approval) ─┬─ approved ─► execute_refund ─► finish_refunded
+                 check_decision (stored approval) ─┬─ approved | expired ─► revalidate
                                                    ├─ rejected ─► finish_rejected
-                                                   ├─ expired ──► finish_escalate (W3.6 re-asks)
-                                                   └─ undecided ► await_approval
+                                                   └─ undecided ─► await_approval
+
+                 revalidate (eligibility + payload hash, W3.6)
+                   ├─ unchanged, approved ─► execute_refund ─► finish_refunded
+                   ├─ unchanged, expired ──► renew_approval ─► finish_approval (waits again)
+                   ├─ changed, eligible ───► new proposal ───► finish_approval (waits again)
+                   └─ no longer eligible ──► finish_escalate
 
 Model nodes propose; every route is decided by code. Side effects never happen in the same node
 as `interrupt()`, because an interrupted node restarts from the top when it resumes (W3.3). The
@@ -39,13 +44,25 @@ from app.llm.calls import BudgetExceeded
 from app.llm.types import ModelError
 from app.schemas.agents import ResolutionProposal
 from app.services.approvals import get_approval
+from app.services.eligibility import check_refund_eligibility
+from app.services.errors import ServiceFailure
 from app.services.orders import list_orders
+from app.services.proposals import (
+    create_refund_proposal,
+    get_proposal,
+    invalidate_proposal,
+    payload_hash,
+    refund_payload,
+    renew_approval,
+)
 from app.services.runs import set_run_output, set_run_status
 from app.tools.gateway import ToolGateway
 from app.workflows.state import WorkflowState
 from app.workflows.validation import validate_proposal
 
 MAX_CLARIFICATION_ROUNDS = 2
+# Approvals asked for in one run (the first, plus renewals and re-proposals, W3.6).
+MAX_APPROVAL_ROUNDS = 3
 ORDER_ID = re.compile(r"\bord_\d+\b")
 WORKFLOW = "system:workflow"
 
@@ -253,6 +270,80 @@ def build_graph(rt: AgentRuntime) -> StateGraph:
             approval = get_approval(ctx.db, state["approval_id"])
         return {"approval_decision": approval.decision}
 
+    def revalidate_node(state: GraphState) -> dict[str, Any]:
+        """Recheck the approved (or expired) proposal against the facts now (W3.6, HLD §2 K).
+
+        Unchanged means code would propose exactly the same payload today. Otherwise the old
+        proposal is invalidated, and a still-eligible refund is proposed again for a new
+        approval: an approval of old facts never authorizes a refund on new ones.
+        """
+        try:
+            with ctx.lock:
+                stored = get_proposal(ctx.db, state["proposed_action_id"])
+                decision = check_refund_eligibility(
+                    ctx.db, ctx.payments, ctx.customer, stored.order_id, today=ctx.today
+                )
+        except ServiceFailure as failure:
+            return {"route": "escalate", "validation_problems": [failure.error_code]}
+        reason = stored.payload["reason"]
+        evidence = stored.payload["evidence_refs"]
+        eligible = decision.outcome == "eligible"
+        current = refund_payload(decision, reason=reason, evidence_refs=evidence)
+        if eligible and payload_hash(current) == stored.payload_hash:
+            return {"revalidation": "unchanged"}
+
+        changed = {"order_id": stored.order_id, "outcome": decision.outcome}
+        rt.recorder.record(WORKFLOW, "proposal_details_changed", changed)
+        if stored.status != "invalidated":
+            with ctx.lock:
+                invalidate_proposal(
+                    ctx.db,
+                    stored.proposal_id,
+                    reason=decision.reason or "details_changed",
+                    actor=WORKFLOW,
+                )
+        rounds = state.get("approval_rounds") or 1
+        if not eligible or rounds >= MAX_APPROVAL_ROUNDS:
+            problem = "NOT_ELIGIBLE" if not eligible else "TOO_MANY_APPROVAL_ROUNDS"
+            return {
+                "revalidation": "changed",
+                "route": "escalate",
+                "validation_problems": [problem],
+            }
+        try:
+            with ctx.lock:
+                proposal = create_refund_proposal(
+                    ctx.db,
+                    ctx.customer,
+                    ctx.run_id,
+                    decision,
+                    reason=reason,
+                    evidence_refs=evidence,
+                )
+        except ServiceFailure as failure:
+            return {"route": "escalate", "validation_problems": [failure.error_code]}
+        return {
+            "revalidation": "changed",
+            "proposed_action_id": proposal.proposal_id,
+            "approval_id": proposal.approval_id,
+            "approval_decision": None,
+            "approval_rounds": rounds + 1,
+            "proposal": {**state["proposal"], "amount_minor": decision.amount_minor},
+        }
+
+    def renew_approval_node(state: GraphState) -> dict[str, Any]:
+        # Unchanged facts, expired approval: the same proposal needs a new approval (W3.6).
+        rounds = state.get("approval_rounds") or 1
+        if rounds >= MAX_APPROVAL_ROUNDS:
+            return {"route": "escalate", "validation_problems": ["TOO_MANY_APPROVAL_ROUNDS"]}
+        with ctx.lock:
+            proposal = renew_approval(ctx.db, state["proposed_action_id"], actor=WORKFLOW)
+        return {
+            "approval_id": proposal.approval_id,
+            "approval_decision": None,
+            "approval_rounds": rounds + 1,
+        }
+
     def execute_refund_node(state: GraphState) -> dict[str, Any]:
         # Rechecks the approval, eligibility and balance; a rerun returns the same operation.
         result = gateway(WORKFLOW, {"execute_approved_refund"}).execute(
@@ -458,10 +549,23 @@ def build_graph(rt: AgentRuntime) -> StateGraph:
         decision = state.get("approval_decision")
         if decision is None:
             return "await_approval"  # woken without a decision: keep waiting
-        # expired | invalidated escalate for now; W3.6 asks for a new approval instead.
-        return {"approved": "execute_refund", "rejected": "finish_rejected"}.get(
-            decision, "finish_escalate"
-        )
+        return {
+            "approved": "revalidate",
+            "expired": "revalidate",
+            "rejected": "finish_rejected",
+        }.get(decision, "finish_escalate")  # invalidated elsewhere: a person looks at it
+
+    def after_revalidate(state: GraphState) -> str:
+        if state.get("halted") or state.get("route") == "escalate":
+            return "finish_escalate"
+        if state.get("revalidation") == "changed":
+            return "finish_approval"
+        approved = state.get("approval_decision") == "approved"
+        return "execute_refund" if approved else "renew_approval"
+
+    def after_renew(state: GraphState) -> str:
+        failed = state.get("halted") or state.get("route") == "escalate"
+        return "finish_escalate" if failed else "finish_approval"
 
     def after_execute(state: GraphState) -> str:
         failed = state.get("halted") or state.get("route") == "escalate"
@@ -483,6 +587,8 @@ def build_graph(rt: AgentRuntime) -> StateGraph:
         ("finish_approval", finish_approval_node),
         ("finish_escalate", finish_escalate_node),
         ("check_decision", check_decision_node),
+        ("revalidate", revalidate_node),
+        ("renew_approval", renew_approval_node),
         ("execute_refund", execute_refund_node),
         ("finish_refunded", finish_refunded_node),
         ("finish_rejected", finish_rejected_node),
@@ -526,7 +632,15 @@ def build_graph(rt: AgentRuntime) -> StateGraph:
     graph.add_conditional_edges(
         "check_decision",
         after_decision,
-        ["execute_refund", "finish_rejected", "await_approval", "finish_escalate"],
+        ["revalidate", "finish_rejected", "await_approval", "finish_escalate"],
+    )
+    graph.add_conditional_edges(
+        "revalidate",
+        after_revalidate,
+        ["execute_refund", "renew_approval", "finish_approval", "finish_escalate"],
+    )
+    graph.add_conditional_edges(
+        "renew_approval", after_renew, ["finish_approval", "finish_escalate"]
     )
     graph.add_conditional_edges(
         "execute_refund", after_execute, ["finish_refunded", "finish_escalate"]

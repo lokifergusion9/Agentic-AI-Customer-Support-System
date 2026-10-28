@@ -113,7 +113,7 @@ def test_unknown_approval_is_404(client: TestClient) -> None:
     assert (response.status_code, response.json()["error_code"]) == (404, "APPROVAL_NOT_FOUND")
 
 
-def test_expired_approval_is_refused_and_the_run_escalates(
+def test_expired_approval_is_refused_and_a_new_one_is_requested(
     client: TestClient, providers, db: Session
 ) -> None:
     payments, _ = providers
@@ -128,7 +128,11 @@ def test_expired_approval_is_refused_and_the_run_escalates(
 
     assert (response.status_code, response.json()["error_code"]) == (409, "APPROVAL_EXPIRED")
     assert payments.get("/payments/ord_1001")["refunds"] == []
-    assert client.get(f"/runs/{run['id']}", headers=ALICE).json()["status"] == "escalated"
+    after = client.get(f"/runs/{run['id']}", headers=ALICE).json()
+    assert after["status"] == "waiting_for_approval"
+    [renewed] = client.get("/approvals", headers=REVIEWER).json()
+    assert renewed["approval_id"] == after["output"]["approval_id"] != run["output"]["approval_id"]
+    assert renewed["proposal_id"] == run["output"]["proposal_id"]
 
 
 # --- W3.5: the approval lifecycle, end to end and in order ---------------------------------
@@ -168,27 +172,66 @@ def test_approval_lifecycle_runs_in_order(client: TestClient, providers) -> None
     assert [r["amount_minor"] for r in paid] == [approved_amount]
 
 
-def test_balance_change_after_the_proposal_blocks_the_refund(client: TestClient, providers) -> None:
-    payments, _ = providers
-    run = paused_refund(client)
-    # Refunded elsewhere while the approval waited: nothing is left to refund.
+def refund_elsewhere(payments, amount_minor: int) -> None:
+    """A refund made outside this run while the approval waited."""
     payments.request(
         "POST",
         "/refunds",
         json={
-            "idempotency_key": "elsewhere:1",
+            "idempotency_key": f"elsewhere:{amount_minor}",
             "order_id": "ord_1001",
-            "amount_minor": 249900,
+            "amount_minor": amount_minor,
             "currency": "INR",
         },
     )
+
+
+def proposal_status(db: Session, proposal_id: str) -> str:
+    return db.execute(
+        text("SELECT status FROM support.action_proposals WHERE id = :id"), {"id": proposal_id}
+    ).scalar_one()
+
+
+# --- W3.6: invalidation ----------------------------------------------------------------------
+
+
+def test_nothing_left_to_refund_invalidates_the_approval(
+    client: TestClient, providers, db: Session
+) -> None:
+    payments, _ = providers
+    run = paused_refund(client)
+    refund_elsewhere(payments, 249900)
 
     body = decide(client, run["output"]["approval_id"], "approved").json()
 
     assert body["run"]["status"] == "escalated"
     assert body["run"]["output"]["validation_problems"] == ["NOT_ELIGIBLE"]
     assert len(payments.get("/payments/ord_1001")["refunds"]) == 1  # only the outside one
-    events = client.get(f"/runs/{run['id']}/events", headers=REVIEWER).json()
-    recheck = next(e for e in events if e["event_type"] == "eligibility_rechecked")
-    assert recheck["payload"]["outcome"] != "eligible"
-    assert "refund_reserved" not in [e["event_type"] for e in events]
+    assert proposal_status(db, run["output"]["proposal_id"]) == "invalidated"
+    types = [
+        e["event_type"] for e in client.get(f"/runs/{run['id']}/events", headers=REVIEWER).json()
+    ]
+    assert {"proposal_details_changed", "proposal_invalidated"} <= set(types)
+    assert "refund_reserved" not in types
+
+
+def test_changed_amount_needs_a_new_approval(client: TestClient, providers, db: Session) -> None:
+    payments, _ = providers
+    run = paused_refund(client)
+    refund_elsewhere(payments, 100000)  # ₹1,000 refunded elsewhere: ₹1,499 is left
+
+    body = decide(client, run["output"]["approval_id"], "approved").json()
+
+    # The approval of ₹2,499 authorizes nothing; ₹1,499 is proposed for a new approval.
+    assert body["run"]["status"] == "waiting_for_approval"
+    assert proposal_status(db, run["output"]["proposal_id"]) == "invalidated"
+    assert len(payments.get("/payments/ord_1001")["refunds"]) == 1
+    [pending] = client.get("/approvals", headers=REVIEWER).json()
+    assert pending["proposal_id"] != run["output"]["proposal_id"]
+    assert pending["amount_minor"] == 149900
+    assert "₹1,499.00" in body["run"]["output"]["final_response"]
+
+    done = decide(client, pending["approval_id"], "approved").json()
+    assert (done["run"]["status"], done["run"]["output"]["route"]) == ("completed", "refunded")
+    paid = [r["amount_minor"] for r in payments.get("/payments/ord_1001")["refunds"]]
+    assert sorted(paid) == [100000, 149900]
