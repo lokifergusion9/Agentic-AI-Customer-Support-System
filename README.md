@@ -70,6 +70,9 @@ uv run python -m scripts.seed_data    # load the demo scenarios (resets business
 uv run python -m scripts.seed_data --push-mocks  # ...and load the data into the three mocks
 uv run python -m scripts.mint_token auth|alice   # demo JWT (--role reviewer|senior_reviewer)
 # Reviewer screen: open http://localhost:8000/review and paste a reviewer JWT
+uv run python -m app.jobs.worker      # job worker, for RUN_EXECUTION=worker (202 Accepted + polling)
+docker compose --profile mocks --profile worker up -d  # ...or run the worker in a container
+uv run python -m scripts.recover      # reconcile uncertain refunds and resume unfinished runs
 uv run pytest                  # run the tests (integration tests need PostgreSQL running)
 uv run ruff check .            # lint
 docker compose down            # stop containers (data is kept)

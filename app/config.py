@@ -1,6 +1,7 @@
 """Application settings, read from environment variables and `.env` (see `.env.example`)."""
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -52,6 +53,9 @@ class Settings(BaseSettings):
     store_currency: str = "INR"
     # A pending approval expires after this long and must be requested again (Q6).
     approval_expiry_minutes: int = 60
+    # W3.13: "inline" drives runs inside the request; "worker" queues a job (202 Accepted)
+    # for the worker process (`uv run python -m app.jobs.worker`).
+    run_execution: Literal["inline", "worker"] = "inline"
 
 
 @lru_cache

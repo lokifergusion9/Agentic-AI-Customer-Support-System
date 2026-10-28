@@ -6,11 +6,12 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.api.runs import get_workflow_services
+from app.api.runs import get_dispatcher
 from app.auth.tokens import mint_token
 from app.config import get_settings
 from app.db.session import get_db
 from app.main import app
+from app.workflows.dispatch import InlineDispatcher
 from app.workflows.runner import WorkflowServices
 from tests.integration import test_workflow as workflow
 from tests.integration.test_workflow import HEADPHONES, Scenario, headphones_scenario, refund_ids
@@ -35,7 +36,7 @@ def use_services(db: Session) -> Iterator[Callable[[WorkflowServices], TestClien
     app.dependency_overrides[get_db] = lambda: db
 
     def install(services: WorkflowServices) -> TestClient:
-        app.dependency_overrides[get_workflow_services] = lambda: services
+        app.dependency_overrides[get_dispatcher] = lambda: InlineDispatcher(services)
         return TestClient(app)
 
     yield install

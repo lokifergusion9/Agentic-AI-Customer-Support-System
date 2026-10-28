@@ -1,12 +1,13 @@
 """Run endpoints (W2.14): start a resolution, read it, its timeline, and reply to a question.
 
-Runs execute inline for now (Q7): POST returns when the workflow finishes or pauses for the
-customer or a reviewer. W3.13 switches to 202 Accepted with a worker.
+With `RUN_EXECUTION=inline` a POST returns when the workflow finishes or pauses for the
+customer or a reviewer. With `RUN_EXECUTION=worker` (W3.13) it records the request, queues a
+job and answers 202 Accepted with the run; clients poll `GET /runs/{run_id}`.
 """
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
@@ -15,6 +16,7 @@ from app.auth.customer import CurrentCustomer, get_current_customer
 from app.auth.dependencies import get_token_claims
 from app.auth.reviewer import REVIEWER_ROLES
 from app.auth.tokens import TokenClaims
+from app.config import get_settings
 from app.db.session import get_db
 from app.policies.embeddings import get_embedder
 from app.schemas.errors import ErrorResponse
@@ -24,7 +26,8 @@ from app.services.errors import ServiceFailure
 from app.services.providers import get_payments_client, get_shipping_client
 from app.services.runs import RunView
 from app.workflows.checkpoints import get_checkpointer
-from app.workflows.runner import WorkflowServices, resume_with_message, start_resolution
+from app.workflows.dispatch import Dispatcher, InlineDispatcher, WorkerDispatcher
+from app.workflows.runner import WorkflowServices
 
 router = APIRouter(tags=["runs"])
 
@@ -57,8 +60,20 @@ def get_workflow_services() -> WorkflowServices:
     )
 
 
-Services = Annotated[WorkflowServices, Depends(get_workflow_services)]
+def get_dispatcher() -> Dispatcher:
+    """Worker mode queues jobs and needs no model credentials; inline mode builds the services."""
+    if get_settings().run_execution == "worker":
+        return WorkerDispatcher(AgentConfig.from_settings())
+    return InlineDispatcher(get_workflow_services())
+
+
+Dispatch = Annotated[Dispatcher, Depends(get_dispatcher)]
 Db = Annotated[Session, Depends(get_db)]
+
+
+def accepted(response: Response, dispatcher: Dispatcher) -> None:
+    if dispatcher.accepted:
+        response.status_code = status.HTTP_202_ACCEPTED
 
 
 def failure_response(failure: ServiceFailure) -> JSONResponse:
@@ -72,15 +87,17 @@ def failure_response(failure: ServiceFailure) -> JSONResponse:
     "/tickets/{ticket_id}/runs",
     status_code=status.HTTP_201_CREATED,
     response_model=RunView,
-    responses=ERRORS,
+    responses={**ERRORS, 202: {"model": RunView}},
 )
 def start_run(
-    ticket_id: str, customer: CurrentCustomer, db: Db, services: Services
+    ticket_id: str, customer: CurrentCustomer, db: Db, dispatcher: Dispatch, response: Response
 ) -> RunView | JSONResponse:
     try:
-        return start_resolution(db, customer, ticket_id, services)
+        run = dispatcher.start(db, customer, ticket_id)
     except ServiceFailure as failure:
         return failure_response(failure)
+    accepted(response, dispatcher)
+    return run
 
 
 @router.get("/runs/{run_id}", response_model=RunView, responses=ERRORS)
@@ -106,11 +123,22 @@ def get_run_events(
     return [RunEventView.model_validate(event) for event in runs.list_run_events(db, run_id)]
 
 
-@router.post("/runs/{run_id}/messages", response_model=RunView, responses=ERRORS)
+@router.post(
+    "/runs/{run_id}/messages",
+    response_model=RunView,
+    responses={**ERRORS, 202: {"model": RunView}},
+)
 def post_run_message(
-    run_id: str, body: RunMessage, customer: CurrentCustomer, db: Db, services: Services
+    run_id: str,
+    body: RunMessage,
+    customer: CurrentCustomer,
+    db: Db,
+    dispatcher: Dispatch,
+    response: Response,
 ) -> RunView | JSONResponse:
     try:
-        return resume_with_message(db, customer, run_id, body.message, services)
+        run = dispatcher.message(db, customer, run_id, body.message)
     except ServiceFailure as failure:
         return failure_response(failure)
+    accepted(response, dispatcher)
+    return run

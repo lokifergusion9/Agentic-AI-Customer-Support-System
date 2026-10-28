@@ -1,7 +1,11 @@
-"""Start and resume resolution runs (W2.13, W2.14, W3.3).
+"""Start and resume resolution runs (W2.13, W2.14, W3.3, W3.13).
 
-Runs execute inline for now (Q7): the request returns when the workflow finishes or pauses.
-W3.13 moves this onto the worker without changing these functions' contract.
+Each entry point is split in two: a short step that records the request (`begin_resolution`,
+`accept_message`; the reviewer's decision is saved by the approval service) and a step that
+drives the graph (`drive_run`, `continue_with_message`, `resume_after_decision`). Inline
+mode runs both in the request; worker mode runs the second on the worker (see
+`app/workflows/dispatch.py`). The driving steps are safe to repeat: each checks where the run's
+checkpoint stands, so a retried or recovered job never repeats finished work.
 """
 
 import logging
@@ -23,6 +27,7 @@ from app.db import SCHEMA
 from app.llm.calls import RunBudget, RunRecorder
 from app.llm.types import ModelProvider
 from app.policies.embeddings import Embedder
+from app.services.approvals import get_approval
 from app.services.audit import record_event
 from app.services.errors import ServiceFailure
 from app.services.providers import ProviderClient
@@ -32,6 +37,10 @@ from app.tools.base import ToolContext
 from app.workflows.graph import build_graph
 
 logger = logging.getLogger(__name__)
+
+# Pauses that wait for a person, not for this process: driving a run leaves them alone.
+EXTERNAL_WAITS = {"await_customer", "await_approval"}
+TERMINAL = {"completed", "escalated", "failed"}
 
 PROMPTS = {
     "single": ["classifier", "single_agent"],
@@ -56,27 +65,68 @@ class WorkflowServices:
 def start_resolution(
     db: Session, customer: AuthenticatedCustomer, ticket_id: str, services: WorkflowServices
 ) -> RunView:
-    ticket = get_ticket(db, customer, ticket_id)  # TICKET_NOT_FOUND unless it is theirs
+    run = begin_resolution(db, customer, ticket_id, services.config)
+    return drive_run(db, run.id, services)
+
+
+def begin_resolution(
+    db: Session, customer: AuthenticatedCustomer, ticket_id: str, config: AgentConfig
+) -> RunView:
+    """Create the run (status `running`) and record its configuration; the graph starts later."""
+    get_ticket(db, customer, ticket_id)  # TICKET_NOT_FOUND unless it is theirs
     run = start_run(db, customer, ticket_id)  # RUN_ALREADY_ACTIVE if one is unfinished
-    rt = runtime(db, customer, run, services, steps_used=0, tokens_used=0)
-    rt.recorder.record(
-        "system:workflow",
-        "run_configured",
-        services.config.summary(PROMPTS[services.config.architecture]),
+    RunRecorder(db, run.id, run.ticket_id).record(
+        "system:workflow", "run_configured", config.summary(PROMPTS[config.architecture])
     )
-    initial: dict[str, Any] = {
-        "run_id": run.id,
-        "ticket_id": ticket.id,
-        "authenticated_customer_id": customer.customer_id,
-        "order_id": ticket.order_id,
-        "customer_message": ticket.customer_message,
-        "customer_messages": [ticket.customer_message],
-        "clarification_rounds": 0,
-        "verified_facts": {},
-        "policy_references": [],
-        "retry_counts": {},
-    }
-    return invoke(db, customer, run, rt, services, initial)
+    return run
+
+
+def drive_run(db: Session, run_id: str, services: WorkflowServices) -> RunView:
+    """Run the graph as far as it goes from wherever the run's checkpoint stands.
+
+    A run with no checkpoint starts from the ticket. A run waiting for the payment provider
+    asks it again. A run stopped between nodes (a crash, a lost worker) continues from there;
+    every node is idempotent. A run waiting for a person, or finished, is left as it is.
+    """
+    customer = run_customer(db, run_id)
+    run = get_run(db, customer, run_id)
+    if run.status in TERMINAL:
+        return run
+    rt = runtime(db, customer, run, services, steps_used=0, tokens_used=0)
+    snapshot = paused_state(rt, services, run)
+    if not snapshot.values:
+        ticket = get_ticket(db, customer, run.ticket_id)
+        initial: dict[str, Any] = {
+            "run_id": run.id,
+            "ticket_id": ticket.id,
+            "authenticated_customer_id": customer.customer_id,
+            "order_id": ticket.order_id,
+            "customer_message": ticket.customer_message,
+            "customer_messages": [ticket.customer_message],
+            "clarification_rounds": 0,
+            "verified_facts": {},
+            "policy_references": [],
+            "retry_counts": {},
+        }
+        return invoke(db, customer, run, rt, services, initial)
+    waiting_at = set(snapshot.next)
+    if "await_provider" in waiting_at:
+        return resume_after_provider(db, run_id, services)
+    approval_id = snapshot.values.get("approval_id")
+    if (
+        "await_approval" in waiting_at
+        and approval_id
+        and get_approval(db, approval_id).decision is not None
+    ):
+        # Decided, but the resume was lost (e.g. the decision job failed): resume it now.
+        return resume_after_decision(db, approval_id, services)
+    if not waiting_at or waiting_at & EXTERNAL_WAITS:
+        return run
+    rt.recorder.record(
+        "system:workflow", "run_resumed", {"after": "interruption", "next": sorted(waiting_at)}
+    )
+    restore_budget(rt, services, run)
+    return invoke(db, customer, run, rt, services, None)
 
 
 def resume_with_message(
@@ -87,6 +137,14 @@ def resume_with_message(
     services: WorkflowServices,
 ) -> RunView:
     """W2.13: the customer answers a clarification question; the same thread continues."""
+    accept_message(db, customer, run_id, message)
+    return continue_with_message(db, run_id, message, services)
+
+
+def accept_message(
+    db: Session, customer: AuthenticatedCustomer, run_id: str, message: str
+) -> RunView:
+    """Record the customer's reply and mark the run running; the graph resumes later."""
     run = get_run(db, customer, run_id)  # RUN_NOT_FOUND unless it is theirs
     if run.status != "waiting_for_customer":
         raise ServiceFailure("RUN_NOT_WAITING", "This run is not waiting for a customer reply.")
@@ -102,7 +160,18 @@ def resume_with_message(
         run_id=run_id,
     )
     db.commit()
+    return get_run(db, customer, run_id)
+
+
+def continue_with_message(
+    db: Session, run_id: str, message: str, services: WorkflowServices
+) -> RunView:
+    """Resume the clarification wait with the reply; if it was already resumed, drive on."""
+    customer = run_customer(db, run_id)
+    run = get_run(db, customer, run_id)
     rt = runtime(db, customer, run, services, steps_used=0, tokens_used=0)
+    if "await_customer" not in paused_state(rt, services, run).next:
+        return drive_run(db, run_id, services)
     restore_budget(rt, services, run)
     return invoke(db, customer, run, rt, services, Command(resume=message))
 

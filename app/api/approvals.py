@@ -1,14 +1,15 @@
 """Approval endpoints (W3.4): the reviewer's queue, and deciding one approval.
 
 The reviewer is whoever the token says, with the role it carries. A decision is saved first,
-then the paused run is resumed on the same thread inline (Q7); the resumed workflow reads the
+then the paused run is resumed on the same thread: inline, or by a queued job with
+`RUN_EXECUTION=worker` (W3.13, the answer is then 202 Accepted). The resumed workflow reads the
 stored decision, so nothing in the request or the chat can authorize a refund (W3.7).
 """
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Response, status
 from fastapi.responses import JSONResponse
 
-from app.api.runs import Db, Services
+from app.api.runs import Db, Dispatch, accepted
 from app.auth.reviewer import CurrentReviewer
 from app.schemas.approvals import ApprovalDecisionRequest, ApprovalDecisionResult
 from app.schemas.errors import ErrorResponse
@@ -20,7 +21,6 @@ from app.services.approvals import (
 )
 from app.services.errors import ServiceFailure
 from app.services.runs import get_run_for_reviewer
-from app.workflows.runner import resume_after_decision
 
 router = APIRouter(tags=["approvals"])
 
@@ -58,23 +58,25 @@ def list_approvals(reviewer: CurrentReviewer, db: Db) -> list[PendingApprovalVie
 @router.post(
     "/approvals/{approval_id}/decision",
     response_model=ApprovalDecisionResult,
-    responses=ERRORS,
+    responses={**ERRORS, 202: {"model": ApprovalDecisionResult}},
 )
 def decide(
     approval_id: str,
     body: ApprovalDecisionRequest,
     reviewer: CurrentReviewer,
     db: Db,
-    services: Services,
+    dispatcher: Dispatch,
+    response: Response,
 ) -> ApprovalDecisionResult | JSONResponse:
     try:
         decide_approval(db, reviewer, approval_id, body.decision)
     except ServiceFailure as failure:
         if failure.error_code in RESUME_ON:
             # E.g. a retried request after the first one saved the decision but not the resume.
-            resume_after_decision(db, approval_id, services)
+            dispatcher.decision(db, approval_id)
         return failure_response(failure)
-    run = resume_after_decision(db, approval_id, services)
+    run = dispatcher.decision(db, approval_id)
+    accepted(response, dispatcher)
     return ApprovalDecisionResult(
         approval=get_approval(db, approval_id), run=get_run_for_reviewer(db, run.id)
     )

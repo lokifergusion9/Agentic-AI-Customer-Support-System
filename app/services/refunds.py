@@ -112,6 +112,9 @@ def execute_approved_refund(
     )
     if decision.outcome != "eligible":
         db.commit()  # keep the recheck in the audit trail; nothing was reserved
+        if find_operation(db, proposal_id) is not None:
+            # A concurrent call for this proposal reserved (and maybe paid) it meanwhile.
+            return confirm_refund(db, payments, proposal_id)
         raise ServiceFailure(
             "NOT_ELIGIBLE", f"The order is no longer eligible for this refund ({decision.reason})."
         )

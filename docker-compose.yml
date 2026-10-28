@@ -76,6 +76,29 @@ services:
     ports:
       - "${MOCK_TICKETING_PORT:-8003}:8003"
 
+  # W3.13: the job worker, on its own so it can be killed and restarted alone:
+  #   docker compose --profile mocks --profile worker up -d
+  #   docker compose kill worker && docker compose --profile worker up -d worker
+  # Run the API with RUN_EXECUTION=worker too, so it queues jobs instead of running them.
+  worker:
+    <<: *mock-service
+    profiles: ["worker"]
+    command: uv run --frozen --no-dev python -m app.jobs.worker
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *mock-env
+      RUN_EXECUTION: worker
+      # Container hostnames instead of the localhost URLs in .env.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-support}:${POSTGRES_PASSWORD:-support}@postgres:5432/${POSTGRES_DB:-support}
+      MOCK_PAYMENTS_URL: http://mock-payments:8001
+      MOCK_SHIPPING_URL: http://mock-shipping:8002
+      MOCK_TICKETING_URL: http://mock-ticketing:8003
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   pgdata:
   uv-cache:

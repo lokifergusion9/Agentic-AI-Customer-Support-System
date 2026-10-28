@@ -388,7 +388,7 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
      - waiting on a customer or reviewer: left alone.
   - The sweep is safe to repeat. Tests are in `tests/integration/test_recovery.py`, including a crash right after the provider call (simulated with `interrupt_before=["verify_refund"]`) for both a 503 and an accepted refund: one provider refund, reconciled before the run resumes.
   - Shared helper: `runner.run_customer`.
-- [ ] **W3.13 — Job execution model** (§13, E§17, Q7). The prototype runs workflows inline. The robust version:
+- [x] **W3.13 — Job execution model** (§13, E§17, Q7). The prototype runs workflows inline. The robust version:
   - persists a job
   - returns `202 Accepted` with the run ID
   - executes on a **separate worker process** (Q7: a PostgreSQL job queue, no `BackgroundTasks`, Celery or Redis)
@@ -398,12 +398,22 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
   Checkpointing restores state, but a mechanism is still needed to schedule and restart unfinished jobs.
 
   Queue design (Q7, extended 2026-10-27 so the Week 4 evaluation platform reuses the same worker):
-  - [ ] A `jobs` table with a `job_type` column: `workflow_run` now, `eval_attempt` in W4.8. Columns: `id`, `job_type`, `payload` (JSONB), `status` (`queued` · `running` · `completed` · `failed` · `cancelled`), `available_at`, `attempts`, `worker_id`, `lease_token`, `lease_expires_at`, `created_at`.
-  - [ ] Claim in a short transaction with `SELECT ... FOR UPDATE SKIP LOCKED` (E§17), and commit **before** any model or provider call.
-  - [ ] A heartbeat extends the lease. Every write that finalizes a job requires the **current lease token**, so a stale worker cannot finalize a job that was reclaimed.
-  - [ ] A sweep finds expired leases and requeues the job. On startup the worker runs the reconciliation sweep (W3.12) first.
-  - [ ] Handlers are looked up by `job_type`, so W4.8 only registers a new handler.
-  - [ ] A `worker` service in docker-compose, so the gate check can kill and restart the worker alone.
+  - [x] A `jobs` table with a `job_type` column: `workflow_run` now, `eval_attempt` in W4.8. Columns: `id`, `job_type`, `payload` (JSONB), `status` (`queued` · `running` · `completed` · `failed` · `cancelled`), `available_at`, `attempts`, `worker_id`, `lease_token`, `lease_expires_at`, `created_at`.
+  - [x] Claim in a short transaction with `SELECT ... FOR UPDATE SKIP LOCKED` (E§17), and commit **before** any model or provider call.
+  - [x] A heartbeat extends the lease. Every write that finalizes a job requires the **current lease token**, so a stale worker cannot finalize a job that was reclaimed.
+  - [x] A sweep finds expired leases and requeues the job. On startup the worker runs the reconciliation sweep (W3.12) first.
+  - [x] Handlers are looked up by `job_type`, so W4.8 only registers a new handler.
+  - [x] A `worker` service in docker-compose, so the gate check can kill and restart the worker alone.
+
+  *Done (user chose `RUN_EXECUTION=inline|worker`, default inline):*
+  - **Queue:** migration 0015 `support.jobs` adds `max_attempts`, `last_error`, `finished_at` and `dedupe_key` (one active job per key). `app/jobs/queue.py` has `enqueue`, `claim`, `heartbeat`, `complete`, `fail` (retry with backoff, then `failed`) and `requeue_expired` (fails a job on its last attempt). Finalizing with a stale token raises `LeaseLost`.
+  - **Dispatch:** `app/workflows/dispatch.py` has `InlineDispatcher` and `WorkerDispatcher`. In worker mode, `POST /tickets/{id}/runs`, `POST /runs/{id}/messages` and `POST /approvals/{id}/decision` record the request, queue a `workflow_run` job (`drive` | `message` | `decision`) and answer **202**. Clients poll `GET /runs/{id}`. The API needs no LLM key in this mode.
+  - **Runner:** split into a record step (`begin_resolution`, `accept_message`) and a repeatable driving step (`drive_run`, `continue_with_message`). `drive_run` starts a run with no checkpoint, rechecks the provider, resumes a decided approval whose resume was lost, or continues after a crash. Recovery uses it too.
+  - **Handlers and worker:** `app/jobs/handlers.py` keeps the registry and takes a per-run `pg_advisory_lock`, so jobs for one run never overlap. `app/jobs/worker.py` (`uv run python -m app.jobs.worker`) requeues expired leases, then runs `recover(queue_work=True)` under a sweep advisory lock before taking jobs, and again every 60 s. The sweep queues one deduplicated `drive` job per unattended `running` run, which is also how provider waits get rechecked. The worker heartbeats every lease/3 and stops after the current job on SIGTERM.
+  - **Compose:** `worker` service under the `worker` profile.
+  - **Bug fixed on the way:** a race in `execute_approved_refund`. If the same proposal was paid concurrently between the operation lookup and the recheck, the call now returns that operation instead of `NOT_ELIGIBLE`.
+  - **Tests:** `test_job_queue.py` (including 4 threads claiming 20 jobs) and `test_worker.py` (202 then the worker finishes; decision pays once; a killed worker is replaced and cannot finalize; sweep queues an orphaned run once).
+  - **Not done here:** a live kill/restart of the `worker` container (needs the LLM key and touches the dev DB). That is the Week 3 gate check.
 - [ ] **W3.14 — Ticket updates** (§4, §14). `update_ticket` reflects the **verified** external status. If the refund succeeded but the ticket update failed, retry **only the ticket update**.
 - [ ] **W3.15 — Audit trail** (§7, §13). Write an `audit_events` row for every state transition, tool call, decision and external result. The payload is **redacted**. `GET /runs/{run_id}/events` serves it.
   *Partly built in W1.15* (`app/services/audit.py` `record_event`, used by tickets, proposals, approvals and refunds).
