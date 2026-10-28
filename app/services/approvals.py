@@ -81,13 +81,9 @@ def decide_approval(
         )
 
     close(db, approval, decision, now, actor=f"reviewer:{reviewer.reviewer_id}", reviewer=reviewer)
-    # A rejection ends this run; an approval lets it go on to execute the refund.
-    set_run_status(
-        db,
-        approval.run_id,
-        "running" if decision == "approved" else "completed",
-        actor=f"reviewer:{reviewer.reviewer_id}",
-    )
+    # The run goes on either way: the resumed workflow executes the refund or follows the
+    # rejection path, and closes the run itself (W3.3).
+    set_run_status(db, approval.run_id, "running", actor=f"reviewer:{reviewer.reviewer_id}")
     db.commit()
     return get_approval(db, approval_id)
 

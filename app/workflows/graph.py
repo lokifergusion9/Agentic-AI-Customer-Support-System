@@ -9,13 +9,20 @@
                              │                                  (interrupt; resumes at classify)
                              ▼
                  resolve (specialists) ─► validate (code) ─┬─► persist_proposal ─► finish_approval
-                                                           ├─► finish_answer
-                                                           ├─► finish_escalate
-                                                           └─► request_clarification
+                                                           ├─► finish_answer               │
+                                                           ├─► finish_escalate             ▼
+                                                           └─► request_clarification  await_approval
+                                         (interrupt; resumed after the reviewer decides, W3.3) │
+                                                                                               ▼
+                 check_decision (stored approval) ─┬─ approved ─► execute_refund ─► finish_refunded
+                                                   ├─ rejected ─► finish_rejected
+                                                   ├─ expired ──► finish_escalate (W3.6 re-asks)
+                                                   └─ undecided ► await_approval
 
 Model nodes propose; every route is decided by code. Side effects never happen in the same node
-as `interrupt()`, because an interrupted node restarts from the top when it resumes (W3.3).
-Week 2 stops at finish_approval: the run waits for a reviewer, and W3 resumes and executes.
+as `interrupt()`, because an interrupted node restarts from the top when it resumes (W3.3). The
+refund is executed in its own node after the pause, and only from the stored approval: the value
+the run is resumed with is a wake-up call, never an authorization (W3.7).
 """
 
 import re
@@ -31,6 +38,7 @@ from app.agents.specialists import classify, find_policy, investigate, resolve, 
 from app.llm.calls import BudgetExceeded
 from app.llm.types import ModelError
 from app.schemas.agents import ResolutionProposal
+from app.services.approvals import get_approval
 from app.services.orders import list_orders
 from app.services.runs import set_run_output, set_run_status
 from app.tools.gateway import ToolGateway
@@ -232,6 +240,82 @@ def build_graph(rt: AgentRuntime) -> StateGraph:
             "final_response": None,
         }
 
+    def await_approval_node(state: GraphState) -> dict[str, Any]:
+        # Nothing else happens here: on resume this node restarts from the top (W3.3).
+        interrupt({"approval_id": state.get("approval_id")})
+        return {}
+
+    # --- After the reviewer's decision (code) ------------------------------------------
+
+    def check_decision_node(state: GraphState) -> dict[str, Any]:
+        # The stored decision, not the resume value, decides what happens next (W3.7).
+        with ctx.lock:
+            approval = get_approval(ctx.db, state["approval_id"])
+        return {"approval_decision": approval.decision}
+
+    def execute_refund_node(state: GraphState) -> dict[str, Any]:
+        # Rechecks the approval, eligibility and balance; a rerun returns the same operation.
+        result = gateway(WORKFLOW, {"execute_approved_refund"}).execute(
+            "execute_approved_refund",
+            {"proposal_id": state["proposed_action_id"]},
+            call_id="execute_refund",
+        )
+        if not result["success"]:
+            return {"route": "escalate", "validation_problems": [result["error_code"]]}
+        operation = result["data"]
+        return {
+            "refund_operation_id": operation["operation_id"],
+            "execution_status": operation["status"],
+            "external_result_reference": operation["provider_reference"],
+        }
+
+    def finish_refunded_node(state: GraphState) -> dict[str, Any]:
+        proposal = state["proposal"]
+        amount = f"₹{proposal['amount_minor'] / 100:,.2f}"
+        if state.get("execution_status") == "succeeded":
+            response = (
+                f"Your refund of {amount} for order {proposal['order_id']} has been issued and "
+                "the payment provider confirmed it (reference "
+                f"{state.get('external_result_reference')})."
+            )
+            finish(
+                state,
+                run_status="completed",
+                ticket_status="resolved",
+                response=response,
+                route="refunded",
+            )
+        else:
+            # Pending, failed or uncertain: claim no more than the provider confirmed (W3.11).
+            response = (
+                f"Your refund of {amount} for order {proposal['order_id']} was approved, but the "
+                "payment provider has not confirmed it yet. A member of our support team will "
+                "check it and update this ticket."
+            )
+            finish(
+                state,
+                run_status="escalated",
+                ticket_status="escalated",
+                response=response,
+                route="refund_unconfirmed",
+            )
+        return {"final_response": response}
+
+    def finish_rejected_node(state: GraphState) -> dict[str, Any]:
+        response = (
+            "A support reviewer looked at your refund request for order "
+            f"{state['proposal']['order_id']} and could not approve it. No refund has been "
+            "issued. Reply on this ticket if you have more information for us."
+        )
+        finish(
+            state,
+            run_status="completed",
+            ticket_status="resolved",
+            response=response,
+            route="rejected",
+        )
+        return {"final_response": response}
+
     def finish_answer_node(state: GraphState) -> dict[str, Any]:
         response = state["proposal"]["customer_message"]
         finish(
@@ -304,6 +388,9 @@ def build_graph(rt: AgentRuntime) -> StateGraph:
                     "order_id": state.get("order_id"),
                     "proposal_id": state.get("proposed_action_id"),
                     "approval_id": state.get("approval_id"),
+                    "approval_decision": state.get("approval_decision"),
+                    "refund_operation_id": state.get("refund_operation_id"),
+                    "refund_status": state.get("execution_status"),
                     "policy_references": state.get("policy_references") or [],
                     "validation_problems": state.get("validation_problems") or [],
                     "stop_reason": state.get("stop_reason"),
@@ -365,6 +452,21 @@ def build_graph(rt: AgentRuntime) -> StateGraph:
     def after_persist(state: GraphState) -> str:
         return "finish_escalate" if state.get("route") == "escalate" else "finish_approval"
 
+    def after_decision(state: GraphState) -> str:
+        if state.get("halted"):
+            return "finish_escalate"
+        decision = state.get("approval_decision")
+        if decision is None:
+            return "await_approval"  # woken without a decision: keep waiting
+        # expired | invalidated escalate for now; W3.6 asks for a new approval instead.
+        return {"approved": "execute_refund", "rejected": "finish_rejected"}.get(
+            decision, "finish_escalate"
+        )
+
+    def after_execute(state: GraphState) -> str:
+        failed = state.get("halted") or state.get("route") == "escalate"
+        return "finish_escalate" if failed else "finish_refunded"
+
     graph = StateGraph(GraphState)
     for name, node in [
         ("classify", classify_node),
@@ -380,10 +482,15 @@ def build_graph(rt: AgentRuntime) -> StateGraph:
         ("finish_answer", finish_answer_node),
         ("finish_approval", finish_approval_node),
         ("finish_escalate", finish_escalate_node),
+        ("check_decision", check_decision_node),
+        ("execute_refund", execute_refund_node),
+        ("finish_refunded", finish_refunded_node),
+        ("finish_rejected", finish_rejected_node),
     ]:
         graph.add_node(name, guarded(node))
     # Not guarded: interrupt() works by raising, and it must propagate to LangGraph.
     graph.add_node("await_customer", await_customer_node)
+    graph.add_node("await_approval", await_approval_node)
 
     graph.add_edge(START, "classify")
     graph.add_conditional_edges(
@@ -414,6 +521,16 @@ def build_graph(rt: AgentRuntime) -> StateGraph:
     )
     graph.add_edge("request_clarification", "await_customer")
     graph.add_edge("await_customer", "classify")
-    for name in ("finish_answer", "finish_approval", "finish_escalate"):
+    graph.add_edge("finish_approval", "await_approval")
+    graph.add_edge("await_approval", "check_decision")
+    graph.add_conditional_edges(
+        "check_decision",
+        after_decision,
+        ["execute_refund", "finish_rejected", "await_approval", "finish_escalate"],
+    )
+    graph.add_conditional_edges(
+        "execute_refund", after_execute, ["finish_refunded", "finish_escalate"]
+    )
+    for name in ("finish_answer", "finish_escalate", "finish_refunded", "finish_rejected"):
         graph.add_edge(name, END)
     return graph

@@ -70,13 +70,13 @@ def test_approve(db: Session, payments: ProviderClient) -> None:
     assert get_run(db, ALICE, run.id).status == "running"
 
 
-def test_reject_ends_the_run(db: Session, payments: ProviderClient) -> None:
+def test_reject_hands_the_run_back_to_the_workflow(db: Session, payments: ProviderClient) -> None:
     run, _, proposal = propose(db, payments, ALICE, "ord_1001")
     approval = decide_approval(db, RIYA, proposal.approval_id, "rejected", now=NOW)
     assert approval.decision == "rejected"
     assert statuses(db, proposal.proposal_id) == ("rejected", "rejected")
-    finished = get_run(db, ALICE, run.id)
-    assert (finished.status, finished.completed_at is not None) == ("completed", True)
+    # The resumed workflow follows the rejection path and closes the run (W3.3).
+    assert get_run(db, ALICE, run.id).status == "running"
 
 
 def test_decision_is_audited(db: Session, payments: ProviderClient) -> None:

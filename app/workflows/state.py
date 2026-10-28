@@ -37,12 +37,17 @@ class WorkflowState(TypedDict, total=False):
     clarification_rounds: int
 
     # Outcome.
-    route: str | None  # answer_only | request_approval | escalate | ask_clarification
+    # answer_only | request_approval | escalate | ask_clarification
+    # | refunded | refund_unconfirmed | rejected
+    route: str | None
     validation_problems: list[str]
     proposed_action_id: str | None
     approval_id: str | None
-    execution_status: str | None  # W3: refund execution
-    external_result_reference: str | None  # W3: provider reference
+    # The stored reviewer decision, read after resuming (W3.3): approved | rejected | expired
+    approval_decision: str | None
+    refund_operation_id: str | None
+    execution_status: str | None  # the refund operation's status: succeeded | submitted | ...
+    external_result_reference: str | None  # provider reference
     retry_counts: dict[str, int]
     error_details: dict[str, Any] | None
     stop_reason: str | None

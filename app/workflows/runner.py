@@ -1,4 +1,4 @@
-"""Start and resume resolution runs (W2.13, W2.14).
+"""Start and resume resolution runs (W2.13, W2.14, W3.3).
 
 Runs execute inline for now (Q7): the request returns when the workflow finishes or pauses.
 W3.13 moves this onto the worker without changing these functions' contract.
@@ -12,12 +12,14 @@ from datetime import date
 from typing import Any
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.types import Command
+from langgraph.types import Command, StateSnapshot
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.agents.config import AgentConfig
 from app.agents.loop import AgentRuntime
 from app.auth.customer import AuthenticatedCustomer
+from app.db import SCHEMA
 from app.llm.calls import RunBudget, RunRecorder
 from app.llm.types import ModelProvider
 from app.policies.embeddings import Embedder
@@ -101,17 +103,57 @@ def resume_with_message(
     )
     db.commit()
     rt = runtime(db, customer, run, services, steps_used=0, tokens_used=0)
-    # The budget is per run, not per request: continue from what the checkpoint recorded.
-    values = (
-        build_graph(rt)
-        .compile(checkpointer=services.checkpointer)
-        .get_state({"configurable": {"thread_id": run.thread_id}})
-        .values
-        or {}
+    restore_budget(rt, services, run)
+    return invoke(db, customer, run, rt, services, Command(resume=message))
+
+
+def resume_after_decision(db: Session, approval_id: str, services: WorkflowServices) -> RunView:
+    """W3.3: wake the run paused on this approval, on the same thread, once it is decided.
+
+    The caller (the reviewer's decision endpoint, W3.4) has already stored the decision. The
+    workflow reads that stored decision itself, so the resume value authorizes nothing. Resuming
+    a run that is no longer paused on the approval changes nothing, so a repeated or late
+    resume can never execute the refund twice.
+    """
+    owner = db.execute(
+        text(
+            "SELECT a.decision, p.run_id, c.id AS customer_id, c.external_auth_subject "
+            f"FROM {SCHEMA}.approvals a "
+            f"JOIN {SCHEMA}.action_proposals p ON p.id = a.proposal_id "
+            f"JOIN {SCHEMA}.customers c ON c.id = p.customer_id WHERE a.id = :approval"
+        ),
+        {"approval": approval_id},
+    ).one_or_none()
+    if owner is None:
+        raise ServiceFailure("APPROVAL_NOT_FOUND", "No approval with this ID was found.")
+    if owner.decision is None:
+        raise ServiceFailure("APPROVAL_PENDING", "This approval has not been decided yet.")
+    # The run belongs to the customer; tools run on their behalf, as before the pause.
+    customer = AuthenticatedCustomer(owner.customer_id, owner.external_auth_subject)
+    run = get_run(db, customer, owner.run_id)
+    rt = runtime(db, customer, run, services, steps_used=0, tokens_used=0)
+    snapshot = paused_state(rt, services, run)
+    if "await_approval" not in snapshot.next or snapshot.values.get("approval_id") != approval_id:
+        return run
+    rt.recorder.record(
+        "system:workflow",
+        "run_resumed",
+        {"approval_id": approval_id, "decision": owner.decision},
     )
+    restore_budget(rt, services, run)
+    return invoke(db, customer, run, rt, services, Command(resume={"approval_id": approval_id}))
+
+
+def paused_state(rt: AgentRuntime, services: WorkflowServices, run: RunView) -> StateSnapshot:
+    graph = build_graph(rt).compile(checkpointer=services.checkpointer)
+    return graph.get_state({"configurable": {"thread_id": run.thread_id}})
+
+
+def restore_budget(rt: AgentRuntime, services: WorkflowServices, run: RunView) -> None:
+    # The budget is per run, not per request: continue from what the checkpoint recorded.
+    values = paused_state(rt, services, run).values or {}
     rt.budget.steps_used = values.get("steps_used", 0)
     rt.budget.tokens_used = values.get("tokens_used", 0)
-    return invoke(db, customer, run, rt, services, Command(resume=message))
 
 
 def runtime(

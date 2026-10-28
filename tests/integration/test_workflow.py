@@ -7,6 +7,7 @@ providers, the business-rule validator, the graph and its checkpoints.
 
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -19,12 +20,20 @@ from sqlalchemy.orm import Session
 from app.agents.config import AgentConfig
 from app.policies.documents import load_policies
 from app.schemas.tickets import TicketCreate
+from app.services.approvals import decide_approval
 from app.services.errors import ServiceFailure
 from app.services.proposals import payload_hash
 from app.services.providers import ProviderClient
 from app.services.tickets import create_ticket, get_ticket
 from app.workflows.checkpoints import postgres_checkpointer
-from app.workflows.runner import WorkflowServices, resume_with_message, start_resolution
+from app.workflows.runner import (
+    WorkflowServices,
+    paused_state,
+    resume_after_decision,
+    resume_with_message,
+    runtime,
+    start_resolution,
+)
 from mock_services.payments.main import app as payments_app
 from mock_services.payments.main import settings as payments_settings
 from mock_services.shipping.main import app as shipping_app
@@ -32,6 +41,7 @@ from mock_services.shipping.main import settings as shipping_settings
 from scripts.ingest_policies import ingest
 from scripts.seed_data import push_mock_payments, push_mock_shipping, seed
 from tests.fakes import FakeCall, FakeEmbedder, ScriptedModel, json_reply, reply
+from tests.integration.test_approvals import RIYA
 from tests.integration.test_policy_search import REFUND_QUESTION
 from tests.integration.test_proposals import ALICE, TODAY
 
@@ -584,3 +594,129 @@ def test_another_customers_order_is_never_used(db: Session, make_services) -> No
     assert run.status == "waiting_for_customer"
     assert "tool_rejected" in event_types(db, run.id)
     assert "ord_1003" not in run.output["final_response"]
+
+
+# --- W3.3: pause for the reviewer, resume on the same thread ------------------------------
+
+
+def paused_at(db: Session, run, services: WorkflowServices) -> tuple[str, ...]:
+    rt = runtime(db, ALICE, run, services, steps_used=0, tokens_used=0)
+    return paused_state(rt, services, run).next
+
+
+def awaiting_review(db: Session, make_services, providers) -> tuple[Any, WorkflowServices]:
+    payments, _ = providers
+    services = make_services(headphones_scenario(*refund_ids(db, payments)))
+    run = start_resolution(db, ALICE, open_ticket(db, HEADPHONES, "ord_1001"), services)
+    assert run.status == "waiting_for_approval"
+    return run, services
+
+
+def test_refund_run_pauses_on_the_approval_before_any_payment(
+    db: Session, make_services, providers
+) -> None:
+    payments, _ = providers
+    run, services = awaiting_review(db, make_services, providers)
+
+    assert paused_at(db, run, services) == ("await_approval",)
+    assert payments.get("/payments/ord_1001")["refunds"] == []
+    with pytest.raises(ServiceFailure) as info:
+        resume_after_decision(db, run.output["approval_id"], services)
+    assert info.value.error_code == "APPROVAL_PENDING"
+
+
+def test_approved_refund_resumes_the_same_thread_and_is_paid_once(
+    db: Session, make_services, providers
+) -> None:
+    payments, _ = providers
+    run, services = awaiting_review(db, make_services, providers)
+    calls = len(services.provider.calls)
+
+    decide_approval(db, RIYA, run.output["approval_id"], "approved")
+    done = resume_after_decision(db, run.output["approval_id"], services)
+
+    assert (done.id, done.thread_id) == (run.id, run.thread_id)
+    assert done.status == "completed"
+    assert (done.output["route"], done.output["refund_status"]) == ("refunded", "succeeded")
+    refunds = payments.get("/payments/ord_1001")["refunds"]
+    assert [r["amount_minor"] for r in refunds] == [249900]
+    assert refunds[0]["provider_reference"] in done.output["final_response"]
+    assert len(services.provider.calls) == calls  # no model call after the pause
+    assert get_ticket(db, ALICE, run.ticket_id).status == "resolved"
+    events = event_types(db, run.id)
+    assert events.index("approval_decided") < events.index("run_resumed")
+    assert events.index("run_resumed") < events.index("refund_reserved")
+
+    # A repeated resume finds the run no longer paused: nothing runs, nothing is paid again.
+    again = resume_after_decision(db, run.output["approval_id"], services)
+    assert again.status == "completed"
+    assert len(payments.get("/payments/ord_1001")["refunds"]) == 1
+
+
+def test_rejected_refund_follows_the_rejection_path(db: Session, make_services, providers) -> None:
+    payments, _ = providers
+    run, services = awaiting_review(db, make_services, providers)
+
+    decide_approval(db, RIYA, run.output["approval_id"], "rejected")
+    done = resume_after_decision(db, run.output["approval_id"], services)
+
+    assert done.status == "completed"
+    assert (done.output["route"], done.output["approval_decision"]) == ("rejected", "rejected")
+    assert "No refund has been issued" in done.output["final_response"]
+    assert payments.get("/payments/ord_1001")["refunds"] == []
+    assert get_ticket(db, ALICE, run.ticket_id).status == "resolved"
+
+
+def test_expired_approval_is_escalated_without_paying(
+    db: Session, make_services, providers
+) -> None:
+    payments, _ = providers
+    run, services = awaiting_review(db, make_services, providers)
+    later = datetime.now(UTC) + timedelta(hours=2)
+
+    with pytest.raises(ServiceFailure, match="expired"):
+        decide_approval(db, RIYA, run.output["approval_id"], "approved", now=later)
+    done = resume_after_decision(db, run.output["approval_id"], services)
+
+    assert done.status == "escalated"
+    assert done.output["approval_decision"] == "expired"
+    assert payments.get("/payments/ord_1001")["refunds"] == []
+
+
+def test_unconfirmed_refund_is_not_reported_as_paid(db: Session, make_services, providers) -> None:
+    payments, _ = providers
+    run, services = awaiting_review(db, make_services, providers)
+    payments.http.post("/admin/faults", json={"mode": "delay"})  # provider answers "pending"
+
+    decide_approval(db, RIYA, run.output["approval_id"], "approved")
+    done = resume_after_decision(db, run.output["approval_id"], services)
+
+    assert done.status == "escalated"
+    assert (done.output["route"], done.output["refund_status"]) == (
+        "refund_unconfirmed",
+        "submitted",
+    )
+    assert "has not confirmed it yet" in done.output["final_response"]
+    assert "has been issued" not in done.output["final_response"]
+
+
+def test_approval_pause_survives_a_restart_in_the_postgres_checkpointer(
+    db: Session, make_services, providers, database_url: str
+) -> None:
+    payments, _ = providers
+    scenario = headphones_scenario(*refund_ids(db, payments))
+    paused = start_resolution(
+        db,
+        ALICE,
+        open_ticket(db, HEADPHONES, "ord_1001"),
+        replace(make_services(scenario), checkpointer=postgres_checkpointer(database_url)),
+    )
+    assert paused.status == "waiting_for_approval"
+    decide_approval(db, RIYA, paused.output["approval_id"], "approved")
+
+    # A new saver instance, as after an application restart: the pause comes from PostgreSQL.
+    restarted = replace(make_services(scenario), checkpointer=postgres_checkpointer(database_url))
+    done = resume_after_decision(db, paused.output["approval_id"], restarted)
+
+    assert (done.status, done.output["route"]) == ("completed", "refunded")
+    assert len(payments.get("/payments/ord_1001")["refunds"]) == 1
