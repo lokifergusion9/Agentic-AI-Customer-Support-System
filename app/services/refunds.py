@@ -1,7 +1,8 @@
 """Execute an approved refund, once (W1.15 basic; the core of W3.9).
 
 1. Verify the stored approval for this exact proposal (never a chat message, W3.7).
-2. Recheck eligibility and the refundable balance.
+2. Check the stored payload still hashes to the approved one, then recheck eligibility and
+   the refundable balance (audited as `eligibility_rechecked`).
 3. Reserve the amount in a refund operation with a stable idempotency key, and commit
    before calling the provider: no transaction is held open during the network call.
 4. Call the provider with that key and persist what it said.
@@ -24,6 +25,7 @@ from app.db import SCHEMA
 from app.services.audit import record_event
 from app.services.eligibility import check_refund_eligibility
 from app.services.errors import ServiceFailure
+from app.services.proposals import payload_hash
 from app.services.providers import ProviderClient
 
 ACTOR = "system:executor"
@@ -90,12 +92,33 @@ def execute_approved_refund(
             "APPROVAL_REQUIRED", "This proposal has no valid approval from a reviewer."
         )
 
+    # Only the approved action runs: the stored payload must still hash to what was approved.
+    if payload_hash(proposal.payload) != proposal.payload_hash:
+        raise ServiceFailure(
+            "APPROVAL_REQUIRED", "The proposal no longer matches the approved payload."
+        )
+
     amount = proposal.payload["amount_minor"]
     customer = AuthenticatedCustomer(proposal.customer_id, proposal.external_auth_subject)
     decision = check_refund_eligibility(
         db, payments, customer, proposal.order_id, amount_minor=amount
     )
+    record_event(
+        db,
+        actor=ACTOR,
+        event_type="eligibility_rechecked",
+        payload={
+            "proposal_id": proposal_id,
+            "outcome": decision.outcome,
+            "reason": decision.reason,
+            "amount_minor": amount,
+            "refundable_balance_minor": decision.refundable_balance_minor,
+        },
+        ticket_id=proposal.ticket_id,
+        run_id=proposal.run_id,
+    )
     if decision.outcome != "eligible":
+        db.commit()  # keep the recheck in the audit trail; nothing was reserved
         raise ServiceFailure(
             "NOT_ELIGIBLE", f"The order is no longer eligible for this refund ({decision.reason})."
         )

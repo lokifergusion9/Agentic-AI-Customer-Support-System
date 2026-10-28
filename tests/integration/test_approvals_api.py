@@ -129,3 +129,66 @@ def test_expired_approval_is_refused_and_the_run_escalates(
     assert (response.status_code, response.json()["error_code"]) == (409, "APPROVAL_EXPIRED")
     assert payments.get("/payments/ord_1001")["refunds"] == []
     assert client.get(f"/runs/{run['id']}", headers=ALICE).json()["status"] == "escalated"
+
+
+# --- W3.5: the approval lifecycle, end to end and in order ---------------------------------
+
+
+def test_approval_lifecycle_runs_in_order(client: TestClient, providers) -> None:
+    payments, _ = providers
+    run = paused_refund(client)
+
+    decide(client, run["output"]["approval_id"], "approved")
+
+    events = client.get(f"/runs/{run['id']}/events", headers=REVIEWER).json()
+    types = [e["event_type"] for e in events]
+    statuses = [e["payload"]["status"] for e in events if e["event_type"] == "run_status_changed"]
+    lifecycle = [
+        "proposal_created",  # 1-2: immutable proposal and its pending approval
+        "approval_decided",  # 4-6: authenticated, permitted reviewer; decision saved
+        "run_resumed",  # 7: the same workflow
+        "eligibility_rechecked",  # 8: eligibility and refundable balance
+        "refund_reserved",  # 9: only the approved action
+        "refund_executed",
+    ]
+    assert [types.index(name) for name in lifecycle] == sorted(
+        types.index(name) for name in lifecycle
+    )
+    # 3: paused before the decision, running again only after it.
+    assert statuses == ["waiting_for_approval", "running", "completed"]
+    decided = events[types.index("approval_decided")]
+    assert (decided["actor"], decided["payload"]["reviewer_role"]) == (
+        "reviewer:auth|reviewer_riya",
+        "reviewer",
+    )
+    approved_amount = next(
+        e["payload"]["amount_minor"] for e in events if e["event_type"] == "proposal_created"
+    )
+    paid = payments.get("/payments/ord_1001")["refunds"]
+    assert [r["amount_minor"] for r in paid] == [approved_amount]
+
+
+def test_balance_change_after_the_proposal_blocks_the_refund(client: TestClient, providers) -> None:
+    payments, _ = providers
+    run = paused_refund(client)
+    # Refunded elsewhere while the approval waited: nothing is left to refund.
+    payments.request(
+        "POST",
+        "/refunds",
+        json={
+            "idempotency_key": "elsewhere:1",
+            "order_id": "ord_1001",
+            "amount_minor": 249900,
+            "currency": "INR",
+        },
+    )
+
+    body = decide(client, run["output"]["approval_id"], "approved").json()
+
+    assert body["run"]["status"] == "escalated"
+    assert body["run"]["output"]["validation_problems"] == ["NOT_ELIGIBLE"]
+    assert len(payments.get("/payments/ord_1001")["refunds"]) == 1  # only the outside one
+    events = client.get(f"/runs/{run['id']}/events", headers=REVIEWER).json()
+    recheck = next(e for e in events if e["event_type"] == "eligibility_rechecked")
+    assert recheck["payload"]["outcome"] != "eligible"
+    assert "refund_reserved" not in [e["event_type"] for e in events]

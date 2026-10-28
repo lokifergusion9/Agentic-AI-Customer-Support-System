@@ -145,6 +145,7 @@ def test_refund_ticket_resolved_manually(db: Session, payments: ProviderClient) 
         "ticket_updated",
         "approval_decided",
         "run_status_changed",  # running
+        "eligibility_rechecked",
         "refund_reserved",
         "refund_executed",
         "run_status_changed",  # completed

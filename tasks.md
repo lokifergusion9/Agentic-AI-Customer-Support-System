@@ -302,7 +302,7 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
   - The decision body is `{"decision": "approved" | "rejected"}` with `extra="forbid"`, so a reviewer ID in the body is a 422. It returns `{approval, run}` after resuming inline.
   - Error codes: 403 for a customer token or `REVIEWER_NOT_PERMITTED`, 404 for `APPROVAL_NOT_FOUND`, 409 for `APPROVAL_ALREADY_DECIDED` or `APPROVAL_EXPIRED`. On either 409 the run is still resumed, so it follows the stored outcome (an expired approval escalates until W3.6), and a retried request can finish a resume that was cut off.
   - Tests: `tests/integration/test_approvals_api.py`, plus queue tests in `test_approvals.py`.
-- [ ] **W3.5 — Approval lifecycle** (§11), in this order:
+- [x] **W3.5 — Approval lifecycle** (§11), in this order:
   1. Persist an immutable proposal.
   2. Create a pending approval bound to that proposal.
   3. Pause the workflow.
@@ -312,6 +312,8 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
   7. Resume the same workflow.
   8. Recheck eligibility and refundable balance.
   9. Execute **only the approved action**.
+
+  *Done:* steps 1–7 come from W3.1–W3.4. For steps 8–9, `execute_approved_refund` now refuses with `APPROVAL_REQUIRED` when the stored payload no longer hashes to the approved hash. It audits the recheck as `eligibility_rechecked` (outcome, amount, balance) before reserving, and keeps that event even when the recheck blocks. `test_approval_lifecycle_runs_in_order` (in `test_approvals_api.py`) asserts the audit order of the 9 steps through the API. Also tested: a balance change during the wait blocks the refund, and a tampered payload is never executed.
 - [ ] **W3.6 — Invalidation** (§11, §14). If the order, the amount or other material details change, invalidate the old approval and request a new one. An expired approval requires a new valid approval. A rejected approval records the decision and follows the rejection path.
 - [ ] **W3.7 — Chat is not authorization** (§11). The execution service verifies the **stored** approval and the authenticated reviewer decision. It never accepts an approval message from the chat.
 - [ ] **W3.8 — Reviewer interface** (§11, §16). The screen shows:

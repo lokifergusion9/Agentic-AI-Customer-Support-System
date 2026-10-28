@@ -271,3 +271,45 @@ def test_timeout_after_the_provider_accepted_is_safe_to_retry(
         assert retried.status == "succeeded"
         refunds = slow.get("/refunds", params={"order_id": "ord_1001"})
         assert [r["provider_reference"] for r in refunds] == [retried.provider_reference]
+
+
+# --- W3.5: recheck before executing only the approved action -------------------------------
+
+
+def test_recheck_is_audited_before_the_reservation(db: Session, payments: ProviderClient) -> None:
+    proposal = approved(db, payments)
+    execute_approved_refund(db, payments, proposal.proposal_id)
+
+    events = db.execute(
+        text(
+            "SELECT event_type, redacted_payload FROM support.audit_events "
+            "WHERE run_id = :run ORDER BY id"
+        ),
+        {"run": proposal.run_id},
+    ).all()
+    types = [e.event_type for e in events]
+    assert types.index("eligibility_rechecked") < types.index("refund_reserved")
+    recheck = events[types.index("eligibility_rechecked")].redacted_payload
+    assert (recheck["outcome"], recheck["amount_minor"]) == ("eligible", 249900)
+
+
+def test_a_payload_that_no_longer_matches_the_approval_is_not_executed(
+    db: Session, payments: ProviderClient
+) -> None:
+    proposal = approved(db, payments)
+    # Bypass the immutability trigger (this test's transaction only) to simulate tampering.
+    db.execute(text("ALTER TABLE support.action_proposals DISABLE TRIGGER USER"))
+    db.execute(
+        text(
+            "UPDATE support.action_proposals "
+            "SET payload = jsonb_set(payload, '{amount_minor}', '999900') WHERE id = :id"
+        ),
+        {"id": proposal.proposal_id},
+    )
+    db.execute(text("ALTER TABLE support.action_proposals ENABLE TRIGGER USER"))
+
+    result = failure(lambda: execute_approved_refund(db, payments, proposal.proposal_id))
+
+    assert result.error_code == "APPROVAL_REQUIRED"
+    assert provider_refunds(payments, "ord_1001") == []
+    assert operations(db, "ord_1001") == []
