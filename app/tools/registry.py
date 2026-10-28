@@ -21,6 +21,7 @@ from pydantic import Field
 from app.policies.search import PolicyFilters, search_policy
 from app.services.eligibility import check_refund_eligibility
 from app.services.errors import ServiceFailure
+from app.services.helpdesk import sync_ticket, update_id
 from app.services.orders import get_order, list_orders
 from app.services.payments import get_payment_status, get_refund_status
 from app.services.proposals import create_refund_proposal
@@ -136,6 +137,18 @@ def run_update_ticket(ctx: ToolContext, args: UpdateTicketArgs):
     # The workflow passes the run's own ticket; any other ID is refused.
     if args.ticket_id != ctx.ticket_id:
         raise ServiceFailure("TICKET_NOT_FOUND", "No ticket with this ID was found.")
+    if ctx.ticketing is not None:
+        # The helpdesk confirms the status first; a failure queues only this update (W3.14).
+        return sync_ticket(
+            ctx.db,
+            ctx.ticketing,
+            args.ticket_id,
+            actor="system:workflow",
+            update_id=update_id(ctx.run_id, args.status, args.note),
+            status=args.status,
+            category=args.category,
+            summary=args.note,
+        )
     return update_ticket(
         ctx.db,
         args.ticket_id,

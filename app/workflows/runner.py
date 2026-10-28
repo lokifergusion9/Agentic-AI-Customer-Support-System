@@ -60,6 +60,8 @@ class WorkflowServices:
     checkpointer: BaseCheckpointSaver
     today: date | None = None
     sleep: Callable[[float], None] = field(default=time.sleep)
+    # The helpdesk (W3.14); None keeps ticket updates local (most tests).
+    ticketing: ProviderClient | None = None
 
 
 def start_resolution(
@@ -273,6 +275,7 @@ def runtime(
         ticket_id=run.ticket_id,
         payments=services.payments,
         shipping=services.shipping,
+        ticketing=services.ticketing,
         embedder=services.embedder,
         today=services.today,
         lock=recorder.lock,

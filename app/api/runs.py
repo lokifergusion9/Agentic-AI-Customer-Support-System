@@ -23,7 +23,11 @@ from app.schemas.errors import ErrorResponse
 from app.schemas.runs import RunEventView, RunMessage
 from app.services import runs
 from app.services.errors import ServiceFailure
-from app.services.providers import get_payments_client, get_shipping_client
+from app.services.providers import (
+    get_payments_client,
+    get_shipping_client,
+    get_ticketing_client,
+)
 from app.services.runs import RunView
 from app.workflows.checkpoints import get_checkpointer
 from app.workflows.dispatch import Dispatcher, InlineDispatcher, WorkerDispatcher
@@ -55,6 +59,7 @@ def get_workflow_services() -> WorkflowServices:
         config=config,
         payments=get_payments_client(),
         shipping=get_shipping_client(),
+        ticketing=get_ticketing_client(),
         embedder=get_embedder(),
         checkpointer=get_checkpointer(),
     )

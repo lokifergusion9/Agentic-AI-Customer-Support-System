@@ -8,6 +8,7 @@ from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session
 
 from app.jobs.queue import Job
+from app.services.helpdesk import retry_sync
 from app.workflows.runner import WorkflowServices, continue_with_message, drive_run
 
 
@@ -57,3 +58,11 @@ def handle_workflow_run(db: Session, job: Job, ctx: HandlerContext) -> None:
         else:
             # drive (start, recovery) and decision: drive_run resumes a decided approval too.
             drive_run(db, run_id, ctx.services)
+
+
+@register("ticket_sync")
+def handle_ticket_sync(db: Session, job: Job, ctx: HandlerContext) -> None:
+    """Retry only the ticket update the helpdesk missed (W3.14); raises while it is down."""
+    if ctx.services.ticketing is None:
+        raise RuntimeError("no ticketing client configured")
+    retry_sync(db, ctx.services.ticketing, job.payload)

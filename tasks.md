@@ -414,7 +414,14 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
   - **Bug fixed on the way:** a race in `execute_approved_refund`. If the same proposal was paid concurrently between the operation lookup and the recheck, the call now returns that operation instead of `NOT_ELIGIBLE`.
   - **Tests:** `test_job_queue.py` (including 4 threads claiming 20 jobs) and `test_worker.py` (202 then the worker finishes; decision pays once; a killed worker is replaced and cannot finalize; sweep queues an orphaned run once).
   - **Not done here:** a live kill/restart of the `worker` container (needs the LLM key and touches the dev DB). That is the Week 3 gate check.
-- [ ] **W3.14 — Ticket updates** (§4, §14). `update_ticket` reflects the **verified** external status. If the refund succeeded but the ticket update failed, retry **only the ticket update**.
+- [x] **W3.14 — Ticket updates** (§4, §14). `update_ticket` reflects the **verified** external status. If the refund succeeded but the ticket update failed, retry **only the ticket update**.
+  *Done:* `app/services/helpdesk.py` syncs with the mock ticketing API (HLD §9 Q1: the local status changes only after the helpdesk confirms).
+  - **Idempotent calls:** the external ticket is created by `local_ticket_id`, and each update carries `update_id = tku:<run>:<hash(status, note)>`.
+  - **Helpdesk down (retryable):** category and summary still change locally. Only the update is queued as a `ticket_sync` job (migration 0016 allows that `job_type`), audited as `ticket_sync_pending`. A newer update cancels queued older ones, so a late retry can't set an outdated status.
+  - **Retries:** the worker runs them as ordinary jobs (`handle_ticket_sync`). Without a worker, `recover()` step 4 retries them.
+  - **Wiring:** the workflow's `update_ticket` tool uses it when `WorkflowServices.ticketing` is set (the API and worker set it; most tests leave it `None`, which keeps updates local).
+  - The refund status the ticket reflects is already provider-verified (W3.11).
+  - Tests in `tests/integration/test_helpdesk.py` include the full case: refund paid, final ticket update fails, the refund stays one, and only the ticket update is retried until resolved.
 - [ ] **W3.15 — Audit trail** (§7, §13). Write an `audit_events` row for every state transition, tool call, decision and external result. The payload is **redacted**. `GET /runs/{run_id}/events` serves it.
   *Partly built in W1.15* (`app/services/audit.py` `record_event`, used by tickets, proposals, approvals and refunds).
 

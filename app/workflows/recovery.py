@@ -18,8 +18,11 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db import SCHEMA
+from app.jobs import queue
 from app.services.approvals import expire_overdue_approvals
 from app.services.audit import record_event
+from app.services.errors import ServiceFailure
+from app.services.helpdesk import retry_sync
 from app.services.refunds import confirm_refund
 from app.workflows.dispatch import enqueue_decision, enqueue_drive, run_has_active_job
 from app.workflows.runner import WorkflowServices, drive_run, resume_after_decision
@@ -36,6 +39,8 @@ class RecoveryReport:
     expired_approvals: list[str] = field(default_factory=list)
     # run_id -> run status after resuming, or "queued" when a job will drive it
     runs: dict[str, str] = field(default_factory=dict)
+    # ticket_id -> "synced" | "retry_later"
+    ticket_syncs: dict[str, str] = field(default_factory=dict)
 
 
 def recover(
@@ -93,4 +98,18 @@ def recover(
                 report.runs[run_id] = QUEUED
         else:
             report.runs[run_id] = drive_run(db, run_id, services).status
+
+    # 4. Ticket updates the helpdesk missed: retry only those (W3.14). The worker runs them
+    # as ordinary jobs; without one, they are retried here.
+    if not queue_work and services.ticketing is not None:
+        while job := queue.claim(db, ACTOR, lease_seconds=60, job_types=["ticket_sync"]):
+            try:
+                retry_sync(db, services.ticketing, job.payload)
+            except ServiceFailure as failure:
+                db.rollback()
+                queue.fail(db, job, failure.error_code)
+                report.ticket_syncs[job.payload["ticket_id"]] = "retry_later"
+            else:
+                queue.complete(db, job)
+                report.ticket_syncs[job.payload["ticket_id"]] = "synced"
     return report
