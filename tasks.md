@@ -378,7 +378,16 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
 
 ### Recovery, tickets and audit
 
-- [ ] **W3.12 — Reconciliation** (§12, §14). On restart, find runs and operations in an uncertain state and reconcile them with the provider **before** retrying or claiming success.
+- [x] **W3.12 — Reconciliation** (§12, §14). On restart, find runs and operations in an uncertain state and reconcile them with the provider **before** retrying or claiming success.
+  *Done:* `app/workflows/recovery.recover(db, services)`, run with `uv run python -m scripts.recover`. In order:
+  1. Every `reserved`/`unknown`/`submitted` operation goes through `confirm_refund` (audited `refund_recovered`).
+  2. `approvals.expire_overdue_approvals` expires undecided approvals past expiry (`SKIP LOCKED`), and their runs are resumed, which renews or escalates. This closes the W3.6 gap.
+  3. Each `running` run continues from its checkpoint:
+     - paused at `await_provider`: checked again via `resume_after_provider`;
+     - stopped between nodes after a crash: `invoke(None)` continues, and every node is idempotent;
+     - waiting on a customer or reviewer: left alone.
+  - The sweep is safe to repeat. Tests are in `tests/integration/test_recovery.py`, including a crash right after the provider call (simulated with `interrupt_before=["verify_refund"]`) for both a 503 and an accepted refund: one provider refund, reconciled before the run resumes.
+  - Shared helper: `runner.run_customer`.
 - [ ] **W3.13 — Job execution model** (§13, E§17, Q7). The prototype runs workflows inline. The robust version:
   - persists a job
   - returns `202 Accepted` with the run ID

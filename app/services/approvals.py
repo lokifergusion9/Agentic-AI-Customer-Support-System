@@ -161,6 +161,29 @@ def decide_approval(
     return get_approval(db, approval_id)
 
 
+def expire_overdue_approvals(db: Session, *, now: datetime | None = None) -> list[str]:
+    """Mark undecided approvals past their expiry as expired; returns their IDs (W3.6, W3.12).
+
+    Without this, an approval nobody decided would stay pending forever. The caller resumes
+    each run, which then renews the approval or escalates.
+    """
+    rows = db.execute(
+        text(
+            "SELECT a.id, a.proposal_id, p.run_id, r.ticket_id "
+            f"FROM {SCHEMA}.approvals a "
+            f"JOIN {SCHEMA}.action_proposals p ON p.id = a.proposal_id "
+            f"JOIN {SCHEMA}.workflow_runs r ON r.id = p.run_id "
+            "WHERE a.decision IS NULL AND a.expires_at < :now "
+            "ORDER BY a.expires_at FOR UPDATE OF a SKIP LOCKED"
+        ),
+        {"now": now or datetime.now(UTC)},
+    ).all()
+    for approval in rows:
+        close(db, approval, "expired", now or datetime.now(UTC), actor="system:approvals")
+    db.commit()
+    return [approval.id for approval in rows]
+
+
 def close(
     db: Session,
     approval,

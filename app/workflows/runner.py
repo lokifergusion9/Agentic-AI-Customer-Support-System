@@ -150,17 +150,7 @@ def resume_after_provider(db: Session, run_id: str, services: WorkflowServices) 
     The workflow asks the provider itself; the resume value carries nothing. A run that is
     not paused on the provider is returned unchanged.
     """
-    owner = db.execute(
-        text(
-            "SELECT c.id AS customer_id, c.external_auth_subject "
-            f"FROM {SCHEMA}.workflow_runs r JOIN {SCHEMA}.tickets t ON t.id = r.ticket_id "
-            f"JOIN {SCHEMA}.customers c ON c.id = t.customer_id WHERE r.id = :run"
-        ),
-        {"run": run_id},
-    ).one_or_none()
-    if owner is None:
-        raise ServiceFailure("RUN_NOT_FOUND", "No run with this ID was found.")
-    customer = AuthenticatedCustomer(owner.customer_id, owner.external_auth_subject)
+    customer = run_customer(db, run_id)
     run = get_run(db, customer, run_id)
     rt = runtime(db, customer, run, services, steps_used=0, tokens_used=0)
     if "await_provider" not in paused_state(rt, services, run).next:
@@ -168,6 +158,21 @@ def resume_after_provider(db: Session, run_id: str, services: WorkflowServices) 
     rt.recorder.record("system:workflow", "run_resumed", {"waiting_for": "provider"})
     restore_budget(rt, services, run)
     return invoke(db, customer, run, rt, services, Command(resume={"check": "provider"}))
+
+
+def run_customer(db: Session, run_id: str) -> AuthenticatedCustomer:
+    """The customer a run acts for: tools run on their behalf, whoever resumes it."""
+    owner = db.execute(
+        text(
+            "SELECT c.id, c.external_auth_subject "
+            f"FROM {SCHEMA}.workflow_runs r JOIN {SCHEMA}.tickets t ON t.id = r.ticket_id "
+            f"JOIN {SCHEMA}.customers c ON c.id = t.customer_id WHERE r.id = :run"
+        ),
+        {"run": run_id},
+    ).one_or_none()
+    if owner is None:
+        raise ServiceFailure("RUN_NOT_FOUND", "No run with this ID was found.")
+    return AuthenticatedCustomer(owner.id, owner.external_auth_subject)
 
 
 def paused_state(rt: AgentRuntime, services: WorkflowServices, run: RunView) -> StateSnapshot:
