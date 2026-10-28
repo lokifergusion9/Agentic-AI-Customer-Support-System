@@ -491,7 +491,7 @@ Ground rules for every Week 4 task:
 
 ### Tasks and dataset
 
-- [ ] **W4.1 — Task format with two views** (E§8, §15). One YAML file per task in `evals/datasets/support-v1/tasks/<task_id>.yaml`, validated by Pydantic models with `extra="forbid"`:
+- [x] **W4.1 — Task format with two views** (E§8, §15). One YAML file per task in `evals/datasets/support-v1/tasks/<task_id>.yaml`, validated by Pydantic models with `extra="forbid"`:
 
   ```yaml
   id: refund_eligible_001
@@ -530,10 +530,10 @@ Ground rules for every Week 4 task:
     limits: {max_model_turns: 12, max_tool_calls: 20, timeout_seconds: 90}
   ```
 
-  - [ ] The loader splits each task into an **agent view** (`agent_input` only) and an **evaluator view** (everything else). A test proves the agent view never contains fixture, reviewer or evaluation keys.
-  - [ ] The `evaluation` block covers every expected-outcome field from the original §15 list: relevant customer and order, applicable policy, allowed and forbidden actions, whether approval is required, expected final business state, and expected escalation or clarification.
-  - [ ] Each task version gets a content hash, and a changed task gets a new version, never an edit.
-  - [ ] Clarification tasks are single-turn: success means the run stops in `awaiting_customer` with a targeted question and no side effects.
+  - [x] The loader splits each task into an **agent view** (`agent_input` only) and an **evaluator view** (everything else). A test proves the agent view never contains fixture, reviewer or evaluation keys.
+  - [x] The `evaluation` block covers every expected-outcome field from the original §15 list: relevant customer and order, applicable policy, allowed and forbidden actions, whether approval is required, expected final business state, and expected escalation or clarification.
+  - [x] Each task version gets a content hash, and a changed task gets a new version, never an edit.
+  - [x] Clarification tasks are single-turn: success means the run stops in `awaiting_customer` with a targeted question and no side effects.
 - [ ] **W4.2 — Dataset `support-v1`, 50 reviewed tasks** (E§9, §15). Start from the 15 seeded scenarios of W1.2 and vary them meaningfully (return status, existing refunds, ownership, approval outcome, missing fields, fault timing, phrasing, tool dependencies), not with near-identical paraphrases:
 
   | Category | Example | Tasks |
