@@ -43,7 +43,12 @@ from typing import Annotated, Any
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from app.agents.facts import collect_citations, collect_facts, verified_order
+from app.agents.facts import (
+    collect_citations,
+    collect_facts,
+    collect_policy_conflicts,
+    verified_order,
+)
 from app.agents.loop import AgentRuntime, InvalidModelOutput
 from app.agents.specialists import classify, find_policy, investigate, resolve, single_agent
 from app.llm.calls import BudgetExceeded
@@ -65,7 +70,7 @@ from app.services.refunds import FINAL, confirm_refund
 from app.services.runs import set_run_output, set_run_status
 from app.tools.gateway import ToolGateway
 from app.workflows.state import WorkflowState
-from app.workflows.validation import validate_proposal
+from app.workflows.validation import Validation, validate_proposal
 
 MAX_CLARIFICATION_ROUNDS = 2
 # The trace's stop reasons (W3.15): budget limits keep their name, every other halt is an error.
@@ -145,6 +150,7 @@ def build_graph(rt: AgentRuntime) -> StateGraph:
             "order_id": order_id,
             # A new classification starts a fresh proposal (e.g. after a clarification).
             "proposal": None,
+            "policy_conflicts": [],
             "evidence": None,
             "policy_finding": None,
             "missing_information": [],
@@ -156,6 +162,7 @@ def build_graph(rt: AgentRuntime) -> StateGraph:
         return {
             "verified_facts": collect_facts(out.tool_records),
             "policy_references": collect_citations(out.tool_records),
+            "policy_conflicts": collect_policy_conflicts(out.tool_records),
             "proposal": out.output.model_dump(),
         }
 
@@ -170,6 +177,7 @@ def build_graph(rt: AgentRuntime) -> StateGraph:
         out = find_policy(rt, state)
         return {
             "policy_references": collect_citations(out.tool_records),
+            "policy_conflicts": collect_policy_conflicts(out.tool_records),
             "policy_finding": out.output.model_dump(),
         }
 
@@ -181,6 +189,7 @@ def build_graph(rt: AgentRuntime) -> StateGraph:
             "verified_facts": collect_facts(found.tool_records),
             "evidence": found.output.model_dump(),
             "policy_references": collect_citations(policy.tool_records),
+            "policy_conflicts": collect_policy_conflicts(policy.tool_records),
             "policy_finding": policy.output.model_dump(),
         }
 
@@ -217,6 +226,13 @@ def build_graph(rt: AgentRuntime) -> StateGraph:
                 citations=state.get("policy_references") or [],
             )
             ctx.db.rollback()  # the eligibility check only reads
+        # Code, not the model, decides that conflicting or missing policy goes to a person (W3.16).
+        finding = state.get("policy_finding") or {}
+        if result.route in ("request_approval", "answer_only"):
+            if state.get("policy_conflicts"):
+                result = Validation("escalate", ["POLICY_CONFLICT"])
+            elif finding.get("needs_human_review"):
+                result = Validation("escalate", ["POLICY_NEEDS_REVIEW"])
         rt.recorder.record(
             WORKFLOW,
             "proposal_validated",

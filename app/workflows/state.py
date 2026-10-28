@@ -29,6 +29,8 @@ class WorkflowState(TypedDict, total=False):
     verified_facts: Annotated[dict[str, Any], merge]
     # Citations returned by search_policy in this run.
     policy_references: Annotated[list[str], operator.add]
+    # Policy searches in this round that returned conflicting versions (W3.16).
+    policy_conflicts: list[str]
     # Specialist outputs (validated schemas, as dicts).
     evidence: dict[str, Any] | None
     policy_finding: dict[str, Any] | None

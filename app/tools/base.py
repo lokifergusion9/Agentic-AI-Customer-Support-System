@@ -6,6 +6,7 @@ the narrow arguments in each tool's Pydantic model, which forbids anything extra
 """
 
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
@@ -33,6 +34,8 @@ class ToolContext:
     today: date | None = None
     # The helpdesk (W3.14). None keeps ticket updates local only (unit and agent tests).
     ticketing: ProviderClient | None = None
+    # Backoff between retries of a read tool (W3.16); tests pass a no-op.
+    sleep: Callable[[float], None] = time.sleep
     # Shared with the run's RunRecorder: agents running in parallel threads (W2.10) take
     # turns on the one database session.
     lock: threading.RLock = field(default_factory=threading.RLock)

@@ -276,6 +276,7 @@ def runtime(
         payments=services.payments,
         shipping=services.shipping,
         ticketing=services.ticketing,
+        sleep=services.sleep,
         embedder=services.embedder,
         today=services.today,
         lock=recorder.lock,

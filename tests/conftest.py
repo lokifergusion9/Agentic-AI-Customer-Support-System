@@ -1,4 +1,8 @@
-"""Fixtures for integration tests that need PostgreSQL (`docker compose up -d`)."""
+"""Fixtures for tests that need PostgreSQL (`docker compose up -d`).
+
+Shared by `tests/integration/` and `tests/failure_scenarios/`, so the session's test database
+is created once.
+"""
 
 import os
 from collections.abc import Iterator
@@ -13,7 +17,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.config import get_settings
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def alembic_config(url: str) -> Config:

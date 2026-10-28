@@ -438,7 +438,7 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
   - **Tool events:** split since W2 (`app/tools/gateway.py`).
   - **Timestamps and reasoning:** `timestamptz` stored in UTC; durations use `time.monotonic`. Thoughts are dropped in `app/llm/gemini.py` and only `reasoning_tokens` is counted.
   - Tests: `tests/integration/test_audit_trail.py` (including 4 concurrent writers on one run).
-- [ ] **W3.16 — Failure-scenario tests** (§14). Add one test per row in `tests/failure_scenarios/`:
+- [x] **W3.16 — Failure-scenario tests** (§14). Add one test per row in `tests/failure_scenarios/`:
 
   | Failure | Expected behavior |
   |---|---|
@@ -455,7 +455,17 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
   | Worker crashes | Resume from persisted state and reconcile side effects |
   | Excessive workflow loops | Stop at a configured step or cost limit |
 
+  *Done:* `tests/failure_scenarios/test_failure_scenarios.py` has 13 tests, one per row plus a second "read API stays down" case. The DB fixtures moved to `tests/conftest.py`, so both folders share one test database. Two behaviours were added in code for this:
+  - **Bounded read retries:** the gateway retries read tools on a retryable failure (0.5 s, then 1 s; `tool_retried` events; `attempts` on the final `tool_finished`). Writes keep their own idempotent retries.
+  - **Policy review is decided by code:** a `search_policy` result of `conflicting` versions (`POLICY_CONFLICT`), or a policy finding with `needs_human_review` (`POLICY_NEEDS_REVIEW`), escalates an answer or a refund proposal, whatever the model proposed.
+
 **Gate check:** kill the worker after the provider accepts a refund but before the response is persisted, then restart. Exactly one refund exists at the provider, and the ticket shows the verified status.
+
+**Gate status (2026-10-28):** passes at integration level.
+  - `test_worker_crash_resumes_from_persisted_state_and_reconciles` and `tests/integration/test_recovery.py` stop the run right after the provider call, then run the restart sweep: one refund at the provider, ticket `resolved`.
+  - `test_refund_execution.py` covers the real accept-then-timeout on a socket.
+  - `test_worker.py` covers a killed worker's job being reclaimed.
+  - **Not yet run:** the same check with the real `worker` container (`docker compose kill worker`). It needs the LLM key and a live run.
 
 ---
 

@@ -33,6 +33,10 @@ def dump(result: Any) -> Any:
     return result
 
 
+# Waits before retrying a read tool after a temporary provider failure (W3.16).
+READ_RETRY_DELAYS = (0.5, 1.0)
+
+
 class ToolGateway:
     def __init__(self, ctx: ToolContext, allowed: frozenset[str], *, actor: str) -> None:
         unknown = allowed - TOOLS.keys()
@@ -89,23 +93,40 @@ class ToolGateway:
                 ServiceFailure("INVALID_ARGUMENTS", validation_summary(exc)),
             )
 
-        try:
-            result = ok(dump(spec.handler(self.ctx, args)))
-        except ServiceFailure as error:
-            if not error.retryable:
-                return self.reject(name, call_id, started, error)
-            # A provider timeout or outage: the tool ran but did not get an answer.
-            self.ctx.db.rollback()
-            self.record(
-                "tool_finished",
-                name,
-                call_id,
-                status="error",
-                error_code=error.error_code,
-                retryable=True,
-                duration_ms=elapsed_ms(started),
-            )
-            return failure(error)
+        attempt = 0
+        while True:
+            try:
+                result = ok(dump(spec.handler(self.ctx, args)))
+                break
+            except ServiceFailure as error:
+                if not error.retryable:
+                    return self.reject(name, call_id, started, error)
+                # A provider timeout or outage: the tool ran but did not get an answer.
+                self.ctx.db.rollback()
+                if spec.access == "read" and attempt < len(READ_RETRY_DELAYS):
+                    # Reads change nothing, so they are retried here, a bounded number of
+                    # times with backoff (HLD 5b); writes have their own idempotent retries.
+                    self.record(
+                        "tool_retried",
+                        name,
+                        call_id,
+                        attempt=attempt + 1,
+                        error_code=error.error_code,
+                    )
+                    self.ctx.sleep(READ_RETRY_DELAYS[attempt])
+                    attempt += 1
+                    continue
+                self.record(
+                    "tool_finished",
+                    name,
+                    call_id,
+                    status="error",
+                    error_code=error.error_code,
+                    retryable=True,
+                    attempts=attempt + 1,
+                    duration_ms=elapsed_ms(started),
+                )
+                return failure(error)
 
         self.record(
             "tool_finished",

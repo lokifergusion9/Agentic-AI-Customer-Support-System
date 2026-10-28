@@ -51,6 +51,17 @@ def collect_citations(records: Iterable[ToolRecord]) -> list[str]:
     return citations
 
 
+def collect_policy_conflicts(records: Iterable[ToolRecord]) -> list[str]:
+    """Searches that found passages from more than one version of a policy (W3.16)."""
+    return [
+        record.result["data"]["message"]
+        for record in records
+        if record.name == "search_policy"
+        and record.result.get("success")
+        and record.result["data"]["status"] == "conflicting"
+    ]
+
+
 def known_refs(facts: dict[str, Any]) -> set[str]:
     """Every record ID that appears anywhere in the verified facts."""
     found: set[str] = set()
