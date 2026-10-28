@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.auth.reviewer import AuthenticatedReviewer, can_decide
+from app.auth.reviewer import REVIEWER_ROLES, AuthenticatedReviewer, can_decide
 from app.db import SCHEMA
 from app.services.audit import record_event
 from app.services.errors import ServiceFailure
@@ -34,6 +34,79 @@ APPROVAL_COLUMNS = (
     "id AS approval_id, proposal_id, required_role, decision, reviewer_id, reviewer_role, "
     "expires_at, decided_at"
 )
+PENDING_LIMIT = 50
+
+
+class PendingApprovalView(BaseModel):
+    """What a reviewer needs to decide one approval (W3.4, the W3.8 screen)."""
+
+    approval_id: str
+    proposal_id: str
+    run_id: str
+    ticket_id: str
+    customer_id: str
+    customer_name: str
+    order_id: str
+    complaint_category: str | None
+    complaint_summary: str | None
+    action: str
+    amount_minor: int
+    currency: str
+    reason: str
+    evidence_refs: list[str]
+    policy_refs: list[str]
+    required_role: str
+    created_at: datetime
+    expires_at: datetime
+
+
+def list_pending_approvals(
+    db: Session, reviewer: AuthenticatedReviewer, *, now: datetime | None = None
+) -> list[PendingApprovalView]:
+    """Undecided, unexpired approvals this reviewer may decide, the soonest to expire first.
+
+    Senior-only approvals are left out for a standard reviewer: they stay queued for a senior.
+    """
+    roles = [role for role in REVIEWER_ROLES if can_decide(reviewer, role)]
+    rows = db.execute(
+        text(
+            "SELECT a.id AS approval_id, a.proposal_id, p.run_id, r.ticket_id, "
+            "c.id AS customer_id, c.name AS customer_name, p.order_id, "
+            "t.category AS complaint_category, t.summary AS complaint_summary, p.payload, "
+            "a.required_role, a.created_at, a.expires_at "
+            f"FROM {SCHEMA}.approvals a "
+            f"JOIN {SCHEMA}.action_proposals p "
+            "ON p.id = a.proposal_id AND p.payload_hash = a.approved_payload_hash "
+            f"JOIN {SCHEMA}.workflow_runs r ON r.id = p.run_id "
+            f"JOIN {SCHEMA}.tickets t ON t.id = r.ticket_id "
+            f"JOIN {SCHEMA}.customers c ON c.id = p.customer_id "
+            "WHERE a.decision IS NULL AND a.expires_at >= :now "
+            "AND a.required_role = ANY(:roles) "
+            "ORDER BY a.expires_at, a.id LIMIT :limit"
+        ),
+        {"now": now or datetime.now(UTC), "roles": roles, "limit": PENDING_LIMIT},
+    ).all()
+    views = []
+    for row in rows:
+        fields = dict(row._mapping)
+        payload = fields.pop("payload")
+        views.append(
+            PendingApprovalView(
+                **fields,
+                **{
+                    key: payload[key]
+                    for key in (
+                        "action",
+                        "amount_minor",
+                        "currency",
+                        "reason",
+                        "evidence_refs",
+                        "policy_refs",
+                    )
+                },
+            )
+        )
+    return views
 
 
 def decide_approval(

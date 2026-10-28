@@ -9,7 +9,7 @@ from sqlalchemy import Connection, text
 from sqlalchemy.orm import Session
 
 from app.auth.reviewer import AuthenticatedReviewer
-from app.services.approvals import decide_approval
+from app.services.approvals import decide_approval, list_pending_approvals
 from app.services.errors import ServiceFailure
 from app.services.providers import ProviderClient
 from app.services.runs import get_run
@@ -161,3 +161,51 @@ def test_unknown_decision_is_a_bug(db: Session, payments: ProviderClient) -> Non
     _, _, proposal = propose(db, payments, ALICE, "ord_1001")
     with pytest.raises(ValueError):
         decide_approval(db, RIYA, proposal.approval_id, "maybe", now=NOW)
+
+
+# --- The reviewer's queue (W3.4) ------------------------------------------------------------
+
+
+def queue(db: Session, reviewer: AuthenticatedReviewer, now=NOW) -> list[str]:
+    return [a.approval_id for a in list_pending_approvals(db, reviewer, now=now)]
+
+
+def test_queue_shows_what_the_reviewer_needs_to_decide(
+    db: Session, payments: ProviderClient
+) -> None:
+    run, decision, proposal = propose(db, payments, ALICE, "ord_1001")
+
+    [pending] = list_pending_approvals(db, RIYA, now=NOW)
+
+    assert (pending.approval_id, pending.proposal_id, pending.run_id) == (
+        proposal.approval_id,
+        proposal.proposal_id,
+        run.id,
+    )
+    assert (pending.customer_id, pending.order_id) == ("cus_alice", "ord_1001")
+    assert (pending.amount_minor, pending.currency) == (decision.amount_minor, "INR")
+    assert pending.evidence_refs == ["return:ord_1001", "payment:ord_1001"]
+    assert pending.policy_refs == decision.policy_refs
+    assert pending.expires_at == proposal.expires_at
+
+
+def test_standard_reviewer_does_not_see_senior_only_approvals(
+    db: Session, payments: ProviderClient
+) -> None:
+    _, _, standard = propose(db, payments, ALICE, "ord_1001")
+    _, _, senior = propose(db, payments, BOB, "ord_1014")
+
+    assert queue(db, RIYA) == [standard.approval_id]
+    assert set(queue(db, SAM)) == {standard.approval_id, senior.approval_id}
+
+
+def test_decided_and_expired_approvals_leave_the_queue(
+    db: Session, payments: ProviderClient
+) -> None:
+    _, _, decided = propose(db, payments, ALICE, "ord_1001")
+    _, _, waiting = propose(db, payments, BOB, "ord_1014")
+    decide_approval(db, RIYA, decided.approval_id, "rejected", now=NOW)
+
+    assert queue(db, SAM) == [waiting.approval_id]
+    assert queue(db, SAM, now=waiting.expires_at) == [waiting.approval_id]  # still decidable
+    assert queue(db, SAM, now=waiting.expires_at + timedelta(seconds=1)) == []

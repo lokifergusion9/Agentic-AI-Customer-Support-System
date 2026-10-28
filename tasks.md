@@ -294,9 +294,14 @@ Evaluation platform boundaries (E§3, decided 2026-10-27):
   *Core already built in W1.15* (pending approval with `required_role` and `expires_at`; decisions in `app/services/approvals.py`). Now wired to the W3.3 pause: the run interrupts on that `approval_id`.
 - [x] **W3.3 — Durable pause/resume** (§11). Use LangGraph `interrupt()`, a checkpointer (PostgreSQL, in separate checkpoint tables), and `Command(resume=...)` with the **same thread ID**. The interrupted node restarts on resume, so **no financial side effect may happen before `interrupt()`**. Keep the side effects in a separate execution step.
   *Done:* `finish_approval → await_approval` (only `interrupt()`) `→ check_decision` (reads the **stored** decision) `→ execute_refund` (W1.15 core, its own node) `→ finish_refunded`. Rejected goes to `finish_rejected`. Expired goes to `finish_escalate` until W3.6. Undecided goes back to waiting. A provider-unconfirmed refund (`submitted`/`unknown`/`failed`) is escalated as `refund_unconfirmed` and never reported as paid; W3.11/W3.12 replace this with verify/reconcile. `runner.resume_after_decision(db, approval_id, services)` resumes the same thread, and does nothing if the run is no longer paused on that approval (a repeated resume never pays twice). `decide_approval` now leaves the run `running` on reject too, so the workflow closes it. W3.4 calls the resume from the decision endpoint. Tests are in `tests/integration/test_workflow.py` (W3.3 section), including a restart test with a new Postgres saver.
-- [ ] **W3.4 — Approval endpoints** (§13):
-  - [ ] `GET /approvals`: list approvals available to the authenticated reviewer.
-  - [ ] `POST /approvals/{approval_id}/decision`: approve or reject. The reviewer identity comes from auth. The decision and `decided_at` are saved, then the run is resumed.
+- [x] **W3.4 — Approval endpoints** (§13):
+  - [x] `GET /approvals`: list approvals available to the authenticated reviewer.
+  - [x] `POST /approvals/{approval_id}/decision`: approve or reject. The reviewer identity comes from auth. The decision and `decided_at` are saved, then the run is resumed.
+  *Done:* `app/api/approvals.py` and `app/services/approvals.list_pending_approvals`.
+  - The queue holds undecided, unexpired approvals the reviewer may decide, soonest expiry first, at most 50. A standard reviewer does not see senior-only approvals. Each entry carries what the W3.8 screen needs: customer, order, complaint category and summary, action, amount, reason, evidence, policy citations, required role and expiry.
+  - The decision body is `{"decision": "approved" | "rejected"}` with `extra="forbid"`, so a reviewer ID in the body is a 422. It returns `{approval, run}` after resuming inline.
+  - Error codes: 403 for a customer token or `REVIEWER_NOT_PERMITTED`, 404 for `APPROVAL_NOT_FOUND`, 409 for `APPROVAL_ALREADY_DECIDED` or `APPROVAL_EXPIRED`. On either 409 the run is still resumed, so it follows the stored outcome (an expired approval escalates until W3.6), and a retried request can finish a resume that was cut off.
+  - Tests: `tests/integration/test_approvals_api.py`, plus queue tests in `test_approvals.py`.
 - [ ] **W3.5 — Approval lifecycle** (§11), in this order:
   1. Persist an immutable proposal.
   2. Create a pending approval bound to that proposal.
