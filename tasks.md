@@ -651,7 +651,7 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
 
 ## Week 5 — Comparison, reporting and presentation (Project_2.pdf + §16–§19)
 
-> **Progress (2026-10-29):** done and committed: W5.1, W5.3, W5.4, W5.5, W5.6, W5.8, W5.10. **Half done:** W5.2 (configs, plans, quota deferral built; the pilot has run, main/repetitions/model comparison still to run). **Half done:** W5.7 (Demos A to D built and run; E waits for real experiments). **Not started:** W5.9 README, W5.11 recording, W5.12 résumé entry. W5.11 and W5.12 need real measured results and the user's own recording, so they cannot be completed by code alone. Nothing from Week 4 or 5 has been pushed.
+> **Progress (2026-10-29):** done and committed: W5.1, W5.3, W5.4, W5.5, W5.6, W5.8, W5.10. **Half done:** W5.2 (configs, plans, quota deferral built; the pilot has run, main/repetitions/model comparison still to run). **Half done:** W5.7 (Demos A to D built and run; E waits for real experiments). **Mostly done:** W5.9 README (measured results and the demo link wait for the experiments and the recording). **Not started:** W5.11 recording, W5.12 résumé entry. W5.11 and W5.12 need real measured results and the user's own recording, so they cannot be completed by code alone. Nothing from Week 4 or 5 has been pushed.
 
 **Done when:** another developer can run the project and **reproduce your reported results** (§16), and you can name the exact tasks that improved or regressed between two configurations (E§27 phase 5).
 
@@ -787,6 +787,7 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
   9. demo link
 
   It also documents model configuration, embedding configuration, required environment variables and setup commands (§17). A reviewer can verify the whole platform in **scripted mode without any API key**.
+  *Status (2026-10-29), **mostly done**:* the README now covers items 1 to 6 and 8 (scope, architecture and workflow with the diagrams, setup through `scripts.dev`, tool contracts and approval design, idempotency and recovery, the evaluation platform with metric definitions, limitations), the configuration, and a scripted-mode verification path (`setup`, `migrate`, `seed`, `smoke`). **Still open:** item 7, the measured results (only the 5-task pilot is listed; the main, repetitions, model comparison and test-split results are added when those experiments finish), and item 9, the demo link (W5.11). The box stays open until then.
 - [x] **W5.10 — Architecture diagrams** (§16). Export from [`high-level-diagram.md`](high-level-diagram.md) into `docs/`, including the evaluation platform (§10 of that file).
   *Done (2026-10-29):* `uv run python -m scripts.export_diagrams --render` writes all 13 Mermaid diagrams of `hld.md` (system, workflow, approval, refund execution, recovery, failures, schema, LLM boundary, and the five evaluation-platform diagrams of §10) to `docs/diagrams/` as `.mmd` sources and SVGs, with an index. `hld.md` stays the single source. The SVGs were rendered with mermaid-cli 11.4.2 through the Edge already on the machine, and two were opened to check them.
 - [ ] **W5.11 — Demo recording** (§16), covering Demos A–E.
