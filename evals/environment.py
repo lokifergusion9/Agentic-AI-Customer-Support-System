@@ -220,7 +220,12 @@ def reset_mock(client: httpx.Client, state: dict[str, Any]) -> None:
 
 
 def snapshot(connection: Connection, mocks: MockClients, env: Environment) -> dict[str, Any]:
-    """The final business state: support rows plus what each mock provider holds."""
+    """The final business state: support rows plus what each mock provider holds.
+
+    Faults are disarmed first: the attempt is over, and the snapshot must see the true state.
+    """
+    for name in ("payments", "shipping", "ticketing"):
+        mocks.get(name).delete("/admin/faults").raise_for_status()
     support = {
         table: [
             dict(row._mapping)
@@ -305,3 +310,34 @@ def capture(
             {"attempt": attempt_id, "run": workflow_run_id},
         )
     return state
+
+
+def past_refund_keys(fixture: EnvironmentFixture) -> set[str]:
+    """Idempotency keys of the refunds a fixture starts with, as the seed inserts them.
+
+    Evaluators subtract these from the provider's refunds to find the attempt's own effects.
+    """
+    return {
+        refund["idempotency_key"]
+        for payment in payments_state(scenarios_for(fixture))
+        for refund in payment["refunds"]
+    }
+
+
+def run_trace(connection: Connection, workflow_run_id: str) -> list[dict[str, Any]]:
+    """The run's audit events as the evaluators read them, numbered as `capture` copies them."""
+    rows = connection.execute(
+        text(
+            f"""
+            SELECT row_number() OVER (ORDER BY e.id) AS sequence_number, e.actor, e.event_type,
+                   e.redacted_payload AS payload
+            FROM {SCHEMA}.audit_events e
+            WHERE e.run_id = :run
+               OR (e.run_id IS NULL AND e.ticket_id =
+                   (SELECT ticket_id FROM {SCHEMA}.workflow_runs WHERE id = :run))
+            ORDER BY e.id
+            """
+        ),
+        {"run": workflow_run_id},
+    )
+    return [dict(row._mapping) for row in rows]

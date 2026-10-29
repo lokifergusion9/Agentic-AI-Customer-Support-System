@@ -12,8 +12,10 @@ from sqlalchemy.orm import Session
 
 from app.services.providers import ProviderClient
 from evals.adapters.base import AgentAdapter, AgentResult, AttemptContext
-from evals.environment import MockClients, prepare
-from evals.loader import load_dataset
+from evals.environment import Environment, MockClients, prepare, run_trace, snapshot
+from evals.evaluators.base import AttemptRecord
+from evals.evaluators.suite import Verdict, evaluate
+from evals.loader import LoadedTask, load_dataset
 from evals.reviewer_simulator import ReviewerSimulator
 from mock_services.payments.main import app as payments_app
 from mock_services.payments.main import settings as payments_settings
@@ -32,6 +34,23 @@ class Attempt:
     result: AgentResult
     db: Session
     mocks: MockClients
+    task: LoadedTask
+    env: Environment
+
+    def record(self) -> AttemptRecord:
+        connection = self.db.connection()
+        return AttemptRecord(
+            task=self.task.evaluator,
+            agent_input=self.task.agent.agent_input,
+            snapshot=snapshot(connection, self.mocks, self.env),
+            trace=run_trace(connection, self.run_id),
+            final_response=self.result.final_response,
+            stop_reason=self.result.stop_reason,
+            workflow_run_id=self.run_id,
+        )
+
+    def verdict(self) -> Verdict:
+        return evaluate(self.record())
 
     @property
     def run_id(self) -> str:
@@ -101,6 +120,6 @@ def run_attempt(conn: Connection, mocks: MockClients):
         )
         if options.get("cancelled"):
             context.cancel.set()
-        return Attempt(asyncio.run(adapter.run(task.agent, context)), db, mocks)
+        return Attempt(asyncio.run(adapter.run(task.agent, context)), db, mocks, task, env)
 
     return run

@@ -610,7 +610,7 @@ Ground rules for every Week 4 task:
   - [ ] Retry policy (E§17): an infrastructure failure gets a bounded retry as a **new attempt with a fresh environment**. Agent behavior failures are never retried. Model retries (for example HTTP 429) are recorded with their usage.
   - [ ] Configurations are interleaved in run order, so quota or time-of-day effects do not favor one (E§22).
   - [ ] A killed worker leaves an interrupted attempt; the lease sweep creates a replacement attempt with a fresh environment, and the stale worker cannot finalize (lease token from W3.13).
-- [ ] **W4.9 — Four independent evaluators** (E§13, E§14). In `evals/evaluators/`, each versioned, reading the evaluator view, the final-state snapshot and the trace, and never calling a model:
+- [x] **W4.9 — Four independent evaluators** (E§13, E§14). In `evals/evaluators/`, each versioned, reading the evaluator view, the final-state snapshot and the trace, and never calling a model:
 
   | Evaluator | Checks |
   |---|---|
@@ -619,14 +619,14 @@ Ground rules for every Week 4 task:
   | **Trajectory** | Tool choice, schema validity, argument correctness, partial-order preconditions (any valid order passes), redundant or repeated calls, handling of injected failures. One-to-one matching of required calls, so repeated correct calls cannot inflate recall. `not_applicable` when a task needs no tools |
   | **Response** | The final message matches what happened: no "refund issued" without a confirmed refund, required facts mentioned, no forbidden claims. Deterministic checks only (no LLM judge in this version) |
 
-  - [ ] Every evaluator returns the score contract:
+  - [x] Every evaluator returns the score contract:
     ```json
     {"evaluator": "refund_outcome", "version": "1.0.0", "dimension": "amount", "applicable": true,
      "status": "fail", "score": 0, "reason_code": "WRONG_REFUND_AMOUNT",
      "evidence": {"expected_amount_minor": 249900, "observed_amount_minor": 24990}}
     ```
-  - [ ] An evaluator that raises produces `evaluation_error`, never a silent agent failure or pass.
-  - [ ] **Verified success** per attempt (E§20) = required outcome satisfied **and** no hard invariant violated **and** required response checks satisfied. A correct refusal or escalation is a success when the task expects it.
+  - [x] An evaluator that raises produces `evaluation_error`, never a silent agent failure or pass.
+  - [x] **Verified success** per attempt (E§20) = required outcome satisfied **and** no hard invariant violated **and** required response checks satisfied. A correct refusal or escalation is a success when the task expects it.
 - [ ] **W4.10 — Tests for the platform itself** (E§28). In `tests/evals/`, with hand-built traces and snapshots:
   - [ ] Evaluators: correct resolution, correct refusal, wrong amount, missing approval, wrong customer, duplicate effect, false success message, valid alternate tool order, irrelevant extra calls.
   - [ ] Worker: two workers never claim the same job, expired leases are recovered, a stale worker cannot finalize, cancellation stops new tool execution, an evaluator failure is recorded separately.

@@ -138,8 +138,8 @@ def test_trace_sequence_numbers_are_unique_per_attempt(run: Connection) -> None:
 def test_one_score_per_evaluator_version_and_dimension(run: Connection) -> None:
     sql = (
         f"INSERT INTO {S}.scores (attempt_id, experiment_id, category, evaluator_name, "
-        "evaluator_version, dimension, status, passed) VALUES ('att_1', 'exp_1', "
-        "'eligible_refund', 'outcome', :version, 'refund_total', 'scored', true)"
+        "evaluator_version, dimension, status, score, reason_code) VALUES ('att_1', 'exp_1', "
+        "'eligible_refund', 'outcome', :version, 'amount', 'pass', 1, 'OK')"
     )
     run.execute(text(sql), {"version": "1"})
     assert "uq_scores_attempt_dimension" in rejects(run, sql, version="1")
@@ -147,14 +147,34 @@ def test_one_score_per_evaluator_version_and_dimension(run: Connection) -> None:
 
 
 def test_score_contract_keeps_not_applicable_apart_from_failure(run: Connection) -> None:
+    """W4.9: not_applicable is exactly a score that does not apply, never a hidden fail."""
     sql = (
         f"INSERT INTO {S}.scores (attempt_id, experiment_id, category, evaluator_name, "
-        "evaluator_version, dimension, status, passed) VALUES ('att_1', 'exp_1', "
-        "'eligible_refund', 'policy', '1', 'approval', :status, :passed)"
+        "evaluator_version, dimension, applicable, status) VALUES ('att_1', 'exp_1', "
+        "'eligible_refund', 'policy', '1', :dimension, :applicable, :status)"
     )
-    assert "ck_scores_passed" in rejects(run, sql, status="not_applicable", passed=False)
-    assert "ck_scores_passed" in rejects(run, sql, status="scored", passed=None)
-    run.execute(text(sql), {"status": "not_applicable", "passed": None})
+    assert "ck_scores_applicable" in rejects(
+        run, sql, dimension="a", applicable=True, status="not_applicable"
+    )
+    assert "ck_scores_applicable" in rejects(
+        run, sql, dimension="b", applicable=False, status="fail"
+    )
+    assert "ck_scores_status" in rejects(run, sql, dimension="c", applicable=True, status="scored")
+    run.execute(text(sql), {"dimension": "d", "applicable": False, "status": "not_applicable"})
+    run.execute(text(sql), {"dimension": "e", "applicable": True, "status": "evaluation_error"})
+
+
+def test_execution_and_evaluation_status_are_separate(run: Connection) -> None:
+    """W4.8: a confident wrong answer is completed + fail."""
+    run.execute(
+        text(
+            f"UPDATE {S}.runs SET execution_status = 'completed', evaluation_status = 'fail' "
+            "WHERE id = 'erun_1'"
+        )
+    )
+    bad = f"UPDATE {S}.runs SET execution_status = :s WHERE id = 'erun_1'"
+    assert "ck_runs_execution_status" in rejects(run, bad, s="succeeded")
+    run.execute(text(bad), {"s": "budget_exceeded"})
 
 
 @pytest.mark.parametrize(
@@ -250,5 +270,5 @@ def test_flexible_payloads_are_jsonb(engine: Engine) -> None:
         ("experiments", "manifest"),
         ("trace_events", "payload"),
         ("artifacts", "content"),
-        ("scores", "details"),
+        ("scores", "evidence"),
     } <= jsonb
