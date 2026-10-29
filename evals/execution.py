@@ -21,13 +21,14 @@ import asyncio
 import json
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import text
+from sqlalchemy import Connection, Engine, text
 from sqlalchemy.orm import Session
 
 from app.db import SCHEMA
@@ -90,12 +91,11 @@ def run_attempt_job(db: Session, job: Job, ctx: EvalContext) -> None:
 
     task = EvaluatorView.model_validate(run["evaluator_view"])
     agent = AgentView.model_validate(run["agent_view"])
-    connection = db.connection()
     attempt_id: str | None = None
     try:
-        with environment_lock(connection):
+        with lock_connection(db) as lock, environment_lock(lock):
             env = prepare(
-                connection, ctx.mocks, task, timeout_fault_seconds=ctx.timeout_fault_seconds
+                db.connection(), ctx.mocks, task, timeout_fault_seconds=ctx.timeout_fault_seconds
             )
             attempt_id = start_attempt(db, run, env.environment_id)
 
@@ -116,7 +116,7 @@ def run_attempt_job(db: Session, job: Job, ctx: EvalContext) -> None:
                 ctx.adapter_for(run["agent_config"]), agent, context
             )
             workflow_run_id = result.metadata.get("workflow_run_id")
-            state = capture(connection, ctx.mocks, env, attempt_id, workflow_run_id)
+            state = capture(db.connection(), ctx.mocks, env, attempt_id, workflow_run_id)
             db.commit()
     except StaleAttempt:
         raise
@@ -155,6 +155,22 @@ def run_attempt_job(db: Session, job: Job, ctx: EvalContext) -> None:
 
 
 # --- Steps --------------------------------------------------------------------------------------
+
+
+@contextmanager
+def lock_connection(db: Session) -> Iterator[Connection]:
+    """A connection of its own for the environment lock.
+
+    The session commits during the attempt, which ends its connection's transaction and hands
+    the connection back to the pool. The lock must outlive those commits, so on a real engine
+    it lives on a separate connection. A session bound to one connection (the tests) shares it.
+    """
+    bind = db.get_bind()
+    if isinstance(bind, Engine):
+        with bind.connect() as connection:
+            yield connection
+    else:
+        yield bind
 
 
 def load_run(db: Session, run_id: str) -> dict[str, Any]:

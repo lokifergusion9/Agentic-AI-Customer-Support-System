@@ -11,7 +11,7 @@ from app.jobs.queue import LeaseLost
 from evals.adapters.scripted import ScriptedAdapter
 from evals.configs import scripted_config_row
 from evals.evaluators import suite
-from evals.execution import EvalContext, StaleAttempt, run_attempt_job
+from evals.execution import EvalContext, StaleAttempt, lock_connection, run_attempt_job
 from evals.experiments import ExperimentPlan, create_experiment, run_order
 from tests.fakes import FakeEmbedder
 
@@ -338,3 +338,22 @@ def test_the_eval_worker_ignores_other_job_types(session) -> None:
         )
     )
     assert claim(session) is None
+
+
+def test_the_environment_lock_survives_the_commits_of_a_real_engine_session(engine) -> None:
+    """The worker's session owns its connection: a commit hands it back to the pool.
+
+    The other tests bind the session to one connection, where a commit leaves it open, so they
+    cannot see this. A lock held on the session's connection made every real attempt fail with
+    "This Connection is closed" after the agent had finished.
+    """
+    with Session(engine) as db, lock_connection(db) as lock:
+        assert lock is not db.connection()
+        db.commit()
+        assert db.connection() is not lock
+        assert lock.execute(text("SELECT 1")).scalar_one() == 1  # still open after the commit
+
+
+def test_a_session_bound_to_one_connection_shares_it_for_the_lock(session: Session, conn) -> None:
+    with lock_connection(session) as lock:
+        assert lock is conn
