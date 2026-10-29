@@ -1,0 +1,108 @@
+{% extends "eval_base.html" %}
+{% block title %}Run{% endblock %}
+
+{% block page %}
+<div id="header"><h1>Run</h1></div>
+
+<div class="grid2">
+  <section class="panel agent-saw" id="agent-view"><h2>What the agent saw</h2></section>
+  <section class="panel hidden-truth" id="truth"><h2>Ground truth</h2></section>
+</div>
+
+<section class="panel"><h2>What the agent said</h2><div id="response"></div></section>
+<section class="panel"><h2>Evaluator findings</h2><div id="findings"></div></section>
+<section class="panel"><h2>Final state against what was expected</h2><div id="state"></div></section>
+<section class="panel"><h2>Trace</h2>
+  <p class="muted">Structured events in order. Highlighted events are the ones a failed check points at.
+    The model's private reasoning is not recorded.</p>
+  <ol id="trace" class="plain"></ol></section>
+{% endblock %}
+
+{% block page_script %}
+<script>
+const RUN_ID = {{ run_id|tojson }};
+UI.start(async () => {
+  const { el, json, tag, table, explain, $ } = UI;
+  const run = await json("GET", `/eval/runs/${encodeURIComponent(RUN_ID)}`);
+  const finalAttempt = run.attempts.find((a) => a.id === run.final_attempt_id) || run.attempts[run.attempts.length - 1];
+  const failed = run.scores.filter((s) => s.status === "fail");
+
+  $("header").replaceChildren(
+    el("h1", {}, run.task_id, " ", tag(run.evaluation_status)),
+    el("p", { class: "muted" }, "configuration ", el("code", {}, run.config_id), " · ", run.category, " · repetition ", run.repetition,
+      " · execution ", tag(run.execution_status), " · ",
+      el("a", { href: `/ui/experiments/${encodeURIComponent(run.experiment_id)}` }, "back to the experiment"),
+      run.attempts.length > 1 ? ` · ${run.attempts.length} attempts (the last finished one is scored)` : ""));
+
+  // What the agent was given: only the customer's own words.
+  const input = run.agent_view.agent_input;
+  $("agent-view").replaceChildren(el("h2", {}, "What the agent saw"), el("dl", {},
+    el("dt", {}, "Customer"), el("dd", {}, el("code", {}, input.customer_subject)),
+    el("dt", {}, "Order"), el("dd", {}, input.order_id ? el("code", {}, input.order_id) : el("span", { class: "muted" }, "not given")),
+    el("dt", {}, "Message"), el("dd", {}, input.user_message)));
+
+  // The expected outcome, kept visibly apart: the agent never saw any of it.
+  const g = run.ground_truth, o = g.outcome;
+  $("truth").replaceChildren(el("h2", {}, "Ground truth"), el("dl", {},
+    el("dt", {}, "Expected resolution"), el("dd", {}, g.resolution),
+    el("dt", {}, "Approval required"), el("dd", {}, String(g.approval_required)),
+    el("dt", {}, "Expected outcome"), el("dd", {}, `refund ${o.refund_total_minor} paise × ${o.refund_count}; ticket ${o.ticket_status}; run ${o.run_status}`),
+    el("dt", {}, "Policy relied on"), el("dd", {}, g.applicable_policy.join(", ") || "none"),
+    el("dt", {}, "Forbidden actions"), el("dd", {}, g.forbidden_actions.join(", ") || "none"),
+    el("dt", {}, "Invariants"), el("dd", {}, g.invariants.join(", ") || "none"),
+    el("dt", {}, "Must mention"), el("dd", {}, g.response_checks.must_mention.join(", ") || "—"),
+    el("dt", {}, "Must not mention / claim"), el("dd", {}, [...g.response_checks.must_not_mention, ...g.response_checks.must_not_claim].join(", ") || "—")));
+
+  $("response").replaceChildren(finalAttempt && finalAttempt.final_response
+    ? el("p", {}, finalAttempt.final_response)
+    : el("p", { class: "muted" }, "No final response was recorded."),
+    finalAttempt ? el("p", { class: "muted" }, `stop reason: ${finalAttempt.stop_reason || "n/a"}`) : null);
+
+  // Trace first, so the findings can point into it.
+  let events = [];
+  if (finalAttempt) events = (await json("GET", `/eval/attempts/${encodeURIComponent(finalAttempt.id)}/events`)).events;
+
+  // The events a failed check points at: sequence numbers in its evidence, else the final answer.
+  const flagged = new Map();
+  const collect = (value, score) => {
+    if (Array.isArray(value)) value.forEach((v) => collect(v, score));
+    else if (value && typeof value === "object") {
+      for (const [key, v] of Object.entries(value)) {
+        if (["sequence_number", "calls", "executed", "blocked", "violations"].includes(key) && typeof v === "number") add(v, score);
+        else if (["calls", "executed", "blocked"].includes(key) && Array.isArray(v)) v.forEach((n) => typeof n === "number" && add(n, score));
+        else collect(v, score);
+      }
+    }
+  };
+  const add = (sequence, score) => { if (!flagged.has(sequence)) flagged.set(sequence, []); flagged.get(sequence).push(`${score.evaluator_name}.${score.dimension}`); };
+  for (const score of failed) collect(score.evidence, score);
+  const finish = [...events].reverse().find((e) => e.event_type === "agent_finished");
+  for (const score of failed) if (finish && !flagged.size) add(finish.sequence_number, score);
+  if (finish) for (const score of failed) if (score.evaluator_name === "response") add(finish.sequence_number, score);
+
+  const findingRows = [...failed, ...run.scores.filter((s) => s.status !== "fail")].map((s) => ({ s, cells: [
+    `${s.evaluator_name}.${s.dimension}`, tag(s.status), s.status === "not_applicable" ? el("span", { class: "muted" }, s.reason_code) : el("code", {}, s.reason_code),
+    el("pre", { class: "evidence" }, Object.keys(s.evidence || {}).length ? JSON.stringify(s.evidence, null, 1) : ""),
+    s.status === "fail" ? (() => { const first = [...flagged.entries()].find(([, who]) => who.includes(`${s.evaluator_name}.${s.dimension}`));
+      const b = el("button", { class: "chip", type: "button" }, first ? `event #${first[0]}` : "—");
+      b.disabled = !first; b.addEventListener("click", () => { const row = $(`event-${first[0]}`); row.scrollIntoView({ block: "center" }); });
+      return b; })() : ""] }));
+  $("findings").replaceChildren(findingRows.length ? table(["Check", "Status", "Reason code", "Evidence", "In the trace"], findingRows, (r) => r.s.status === "fail" ? "failed" : "")
+    : el("p", { class: "muted" }, "No scores: the run was not evaluated."));
+
+  const stateRows = run.state_changes.map((c) => ({ c, cells: [c.what, String(c.expected), String(c.observed),
+    c.matches ? el("span", { class: "ok" }, "✓ matches") : el("span", { class: "bad" }, "✗ differs"),
+    (c.detail || []).join("; ")] }));
+  $("state").replaceChildren(stateRows.length ? table(["What", "Expected", "Observed", "", "Detail"], stateRows, (r) => r.c.matches ? "" : "failed")
+    : el("p", { class: "muted" }, "No final state was stored."));
+
+  $("trace").replaceChildren(...events.map((e) => {
+    const who = flagged.get(e.sequence_number);
+    return el("li", { id: `event-${e.sequence_number}`, class: who ? "flag" : "" },
+      el("code", {}, `#${e.sequence_number}`), " ", el("span", { class: "tag" }, e.event_type), " ", explain(e),
+      who ? el("strong", { class: "bad" }, `  ← ${[...new Set(who)].join(", ")}`) : null);
+  }));
+  if (!events.length) $("trace").replaceChildren(el("li", { class: "muted" }, "No trace was stored."));
+});
+</script>
+{% endblock %}

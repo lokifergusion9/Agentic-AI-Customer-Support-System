@@ -48,6 +48,7 @@
     ul.plain { margin: 0; padding-left: 18px; }
     @media (max-width: 560px) { dl { grid-template-columns: 1fr; } dt { margin-top: 6px; } }
   </style>
+  {% block head %}{% endblock %}
 </head>
 <body>
   <main>{% block content %}{% endblock %}</main>

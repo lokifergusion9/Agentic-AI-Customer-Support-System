@@ -1,0 +1,138 @@
+{% extends "eval_base.html" %}
+{% block title %}Experiment{% endblock %}
+
+{% block page %}
+<div id="header"><h1>Experiment</h1></div>
+
+<section class="panel"><h2>Scorecard</h2>
+  <p class="muted">Several numbers, not one total. Success is over scorable runs; strict success counts
+    every planned run; a configuration with high success but low coverage did not finish the experiment.</p>
+  <div id="scorecard"></div></section>
+
+<section class="panel"><h2>By category</h2>
+  <p class="muted">Verified success per category.</p><div id="categories"></div></section>
+
+<div class="grid2">
+  <section class="panel"><h2>Failure reasons</h2>
+    <p class="muted">Click a reason to list the runs that failed for it.</p><div id="reasons"></div></section>
+  <section class="panel"><h2>Latency and tokens</h2>
+    <p class="muted">Queue time, active execution and reviewer wait are separate.</p><div id="latency"></div></section>
+</div>
+
+<section class="panel" id="runs-panel"><h2>Runs</h2>
+  <div class="row" id="filters" style="margin: 8px 0"></div>
+  <div id="runs"></div>
+  <div class="row" style="margin-top: 8px"><button id="prev" type="button">Previous</button>
+    <button id="next" type="button">Next</button><span id="page" class="muted"></span></div>
+</section>
+{% endblock %}
+
+{% block page_script %}
+<script>
+const EXPERIMENT_ID = {{ experiment_id|tojson }};
+UI.start(async () => {
+  const { el, json, api, pct, rate, num, ms, money, table, tag, $ } = UI;
+  const detail = await json("GET", `/eval/experiments/${encodeURIComponent(EXPERIMENT_ID)}`);
+  const configs = Object.keys(detail.scorecards);
+
+  const done = detail.planned_runs - (detail.progress.queued || 0) - (detail.progress.running || 0);
+  const exportButton = el("button", { type: "button" }, "Download report");
+  exportButton.addEventListener("click", async () => {
+    const blob = await (await api("GET", `/eval/experiments/${encodeURIComponent(EXPERIMENT_ID)}/export`)).blob();
+    const link = el("a", { href: URL.createObjectURL(blob), download: `${EXPERIMENT_ID}-report.zip` });
+    link.click();
+  });
+  const cancelButton = el("button", { type: "button" }, "Cancel");
+  cancelButton.disabled = !["queued", "running"].includes(detail.status);
+  cancelButton.addEventListener("click", async () => {
+    if (!confirm("Cancel the queued runs of this experiment?")) return;
+    await json("POST", `/eval/experiments/${encodeURIComponent(EXPERIMENT_ID)}/cancel`);
+    location.reload();
+  });
+  $("header").replaceChildren(
+    el("h1", {}, detail.name, " ", tag(detail.status)),
+    el("p", { class: "muted" }, `${detail.dataset_version} · ${detail.split} · ${detail.repetitions} repetition(s) · `,
+      el("code", {}, detail.id)),
+    el("div", { class: "row" }, el("progress", { max: detail.planned_runs, value: done }),
+      `${done}/${detail.planned_runs} runs finished`, exportButton, cancelButton));
+
+  // Scorecard: one row per configuration.
+  const cardHeaders = ["Configuration", "Verified success", "Strict success", "Coverage", "Executed violations",
+    "Unsafe attempts", { label: "Duplicate refunds", num: true }, "Tool validity", "Tool precision", "Required recall",
+    { label: "Active p50 / p95", num: true }, { label: "Tokens / success", num: true }, { label: "Est. cost / success", num: true }];
+  $("scorecard").replaceChildren(table(cardHeaders, configs.map((id) => {
+    const c = detail.scorecards[id].overall, u = c.tokens_and_cost, ci = c.repetitions.ci95;
+    return { cells: [el("code", {}, id),
+      el("div", {}, pct(c.verified_success_rate), ci ? el("div", { class: "muted" }, `95% CI ${(ci[0] * 100).toFixed(0)}–${(ci[1] * 100).toFixed(0)}% (tasks)`) : null),
+      pct(c.strict_success_rate), pct(c.evaluation_coverage),
+      el("span", { class: c.executed_violation_rate.value > 0 ? "bad" : "" }, pct(c.executed_violation_rate)),
+      pct(c.unsafe_attempt_rate), String(c.duplicate_refund_count), pct(c.tool_schema_validity),
+      pct(c.tool_call_precision), pct(c.required_call_recall),
+      `${ms(c.latency.active_ms.p50)} / ${ms(c.latency.active_ms.p95)}`,
+      num(u.tokens_per_successful_run, 0), money(u.estimated_cost_per_successful_run_usd)] };
+  })));
+
+  // Category breakdown: categories down, configurations across.
+  const categories = [...new Set(configs.flatMap((id) => Object.keys(detail.scorecards[id].by_category)))].sort();
+  $("categories").replaceChildren(table(["Category", ...configs],
+    categories.map((cat) => ({ cells: [cat, ...configs.map((id) => {
+      const c = detail.scorecards[id].by_category[cat];
+      return c ? pct(c.verified_success_rate) : "—";
+    })] }))));
+
+  // Failure reasons: a click filters the run list.
+  const reasons = el("div", {});
+  for (const id of configs) {
+    const list = Object.entries(detail.scorecards[id].overall.failure_reasons);
+    reasons.append(el("h3", {}, id), list.length ? el("div", {}, list.map(([reason, count]) => {
+      const button = el("button", { class: "chip", type: "button" }, `${reason} × ${count}`);
+      button.addEventListener("click", () => { filter = { ...blank, config_id: id, reason_code: reason.split(":").pop() }; offset = 0; syncFilters(); loadRuns(); $("runs-panel").scrollIntoView(); });
+      return button;
+    })) : el("p", { class: "muted" }, "No failed checks."));
+  }
+  $("reasons").replaceChildren(reasons);
+
+  // Latency and tokens, side by side per configuration.
+  const lat = (c, key) => `${ms(c.latency[key].p50)} / ${ms(c.latency[key].p95)}`;
+  $("latency").replaceChildren(table(["Configuration", "Queue p50/p95", "Active p50/p95", "Reviewer wait p50/p95", { label: "Model calls / run", num: true }, { label: "Unknown usage", num: true }],
+    configs.map((id) => { const c = detail.scorecards[id].overall;
+      return { cells: [el("code", {}, id), lat(c, "queue_ms"), lat(c, "active_ms"), lat(c, "approval_wait_ms"),
+        num(c.tokens_and_cost.model_calls_per_run.value), String(c.tokens_and_cost.runs_with_unknown_usage)] }; })));
+
+  // Run list with filters.
+  const blank = { config_id: "", category: "", status: "", reason_code: "" };
+  let filter = { ...blank }, offset = 0;
+  const limit = 25;
+  const select = (name, options) => {
+    const node = el("select", { "aria-label": name }, el("option", { value: "" }, `any ${name}`),
+      options.map((o) => el("option", { value: o }, o)));
+    node.addEventListener("change", () => { filter[name] = node.value; offset = 0; loadRuns(); });
+    return node;
+  };
+  const reasonBox = el("input", { placeholder: "reason code", "aria-label": "reason_code", style: "max-width: 220px" });
+  reasonBox.addEventListener("change", () => { filter.reason_code = reasonBox.value.trim(); offset = 0; loadRuns(); });
+  const selects = { config_id: select("config_id", configs), category: select("category", categories),
+    status: select("status", ["fail", "partial", "pass", "completed", "not_applicable", "evaluation_error", "infrastructure_error", "cancelled", "queued"]) };
+  const chip = (label, change) => { const b = el("button", { class: "chip", type: "button" }, label);
+    b.addEventListener("click", () => { filter = { ...blank, ...change }; offset = 0; syncFilters(); loadRuns(); }); return b; };
+  $("filters").replaceChildren(...Object.values(selects), reasonBox,
+    chip("all runs", {}), chip("failed runs", { status: "fail" }), chip("refund failures", { category: "eligible_refund", status: "fail" }));
+  function syncFilters() { for (const [k, node] of Object.entries(selects)) node.value = filter[k]; reasonBox.value = filter.reason_code; }
+
+  async function loadRuns() {
+    const query = new URLSearchParams({ limit, offset, ...Object.fromEntries(Object.entries(filter).filter(([, v]) => v)) });
+    const page = await json("GET", `/eval/experiments/${encodeURIComponent(EXPERIMENT_ID)}/runs?${query}`);
+    $("runs").replaceChildren(page.runs.length ? table(["Task", "Configuration", "Category", { label: "Rep", num: true }, "Execution", "Evaluation", "Verified", "Failed checks"],
+      page.runs.map((r) => ({ cells: [el("a", { href: `/ui/runs/${encodeURIComponent(r.id)}` }, r.task_id), r.config_id, r.category, String(r.repetition),
+        tag(r.execution_status), tag(r.evaluation_status), r.verified_success == null ? "—" : r.verified_success ? "yes" : "no",
+        el("div", {}, r.failures.map((f) => el("div", { class: "bad" }, el("code", {}, f))))] }),
+      ), (row) => row.cells[5] && row.cells[5].textContent === "fail" ? "failed" : "") : el("p", { class: "muted" }, "No runs match."));
+    $("page").textContent = `${page.total ? offset + 1 : 0}–${Math.min(offset + limit, page.total)} of ${page.total}`;
+    $("prev").disabled = offset === 0; $("next").disabled = offset + limit >= page.total;
+  }
+  $("prev").onclick = () => { offset = Math.max(0, offset - limit); loadRuns(); };
+  $("next").onclick = () => { offset += limit; loadRuns(); };
+  await loadRuns();
+});
+</script>
+{% endblock %}

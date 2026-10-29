@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Evaluation{% endblock %}
+
+{% block head %}
+<style>
+  main { max-width: 1180px; }
+  nav.top { display: flex; gap: 16px; align-items: center; margin-bottom: 12px; }
+  nav.top a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  nav.top a:hover { text-decoration: underline; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .scroll { overflow-x: auto; }
+  progress { width: 140px; height: 10px; }
+  .chip { display: inline-block; font-size: 12px; padding: 1px 9px; border-radius: 99px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text); margin: 0 4px 4px 0; }
+  button.chip { cursor: pointer; }
+  button.chip:hover { border-color: var(--accent); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 820px) { .grid2 { grid-template-columns: 1fr; } }
+  .agent-saw { border-left: 4px solid var(--accent); }
+  .hidden-truth { border: 2px dashed var(--warn); background: transparent; }
+  .hidden-truth h2::after { content: " — hidden from the agent"; color: var(--warn); font-size: 13px; font-weight: 500; }
+  tr.failed td { background: color-mix(in srgb, var(--bad) 9%, transparent); }
+  li.flag, tr.flag td { background: color-mix(in srgb, var(--warn) 18%, transparent); }
+  .bar { display: inline-block; height: 8px; background: var(--accent); border-radius: 4px; vertical-align: middle; }
+  pre.evidence { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; color: var(--muted); }
+  .up { color: var(--ok); } .down { color: var(--bad); }
+  select { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px; }
+  {% block page_style %}{% endblock %}
+</style>
+{% endblock %}
+
+{% block content %}
+<nav class="top">
+  <strong>Evaluation</strong>
+  <a href="/ui/experiments">Experiments</a>
+  <a href="/ui/compare">Compare</a>
+</nav>
+
+<section class="panel" id="token-panel">
+  <form id="token-form">
+    <label for="token">Operator token (JWT)</label>
+    <textarea id="token" rows="2" autocomplete="off" spellcheck="false"
+      placeholder="uv run python -m scripts.mint_token auth|ops --role operator"></textarea>
+    <div class="row" style="margin-top: 8px">
+      <button class="primary" type="submit">Load</button>
+      <span id="status" class="muted" role="status"></span>
+    </div>
+  </form>
+</section>
+
+{% block page %}{% endblock %}
+{% endblock %}
+
+{% block script %}
+<script>
+// Shared helpers. Elements are built with textContent only: findings and responses come from
+// the agent under test, so they are never trusted as markup.
+window.UI = (() => {
+  const TOKEN_KEY = "operator_token";
+  const tokenBox = document.getElementById("token");
+  const statusLine = document.getElementById("status");
+  try { tokenBox.value = sessionStorage.getItem(TOKEN_KEY) || ""; } catch (e) {}
+
+  function el(tag, attrs = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(attrs)) {
+      if (key === "class") node.className = value; else node.setAttribute(key, value);
+    }
+    for (const child of children.flat()) {
+      if (child == null || child === false) continue;
+      node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+    }
+    return node;
+  }
+
+  async function api(method, path, body, extraHeaders = {}) {
+    const response = await fetch(path, {
+      method,
+      headers: { Authorization: `Bearer ${tokenBox.value.trim()}`, ...extraHeaders,
+        ...(body ? { "Content-Type": "application/json" } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      const detail = data.detail;
+      const message = detail && detail.differences ? `${detail.message}: ${detail.differences.join("; ")}`
+        : typeof detail === "string" ? detail : JSON.stringify(detail || response.statusText);
+      throw new Error(`${response.status}: ${message}`);
+    }
+    return response;
+  }
+  const json = async (method, path, body) => (await api(method, path, body)).json();
+
+  const pct = (r) => !r || r.value == null ? "n/a" : `${(r.value * 100).toFixed(0)}% (${r.n}/${r.of})`;
+  const rate = (r) => !r || r.value == null ? "n/a" : (r.value * 100).toFixed(0) + "%";
+  const num = (v, digits = 1) => v == null ? "n/a" : Number(v).toLocaleString(undefined, { maximumFractionDigits: digits });
+  const ms = (v) => v == null ? "n/a" : v >= 1000 ? `${(v / 1000).toFixed(1)} s` : `${Math.round(v)} ms`;
+  const money = (v) => v == null ? "unknown" : `$${Number(v).toFixed(4)}`;
+  const cls = (status) => ({ pass: "ok", completed: "ok", fail: "bad", failed: "bad", partial: "warn",
+    evaluation_error: "bad", infrastructure_error: "bad", running: "warn", queued: "muted" }[status] || "muted");
+  const tag = (status) => el("span", { class: `tag ${cls(status)}` }, status);
+
+  function table(headers, rows, rowClass) {
+    return el("div", { class: "scroll" }, el("table", {},
+      el("thead", {}, el("tr", {}, headers.map((h) => el("th", { class: h.num ? "num" : "" }, h.label ?? h)))),
+      el("tbody", {}, rows.map((row) => el("tr", { class: rowClass ? rowClass(row) : "" },
+        row.cells.map((cell, i) => el("td", { class: headers[i].num ? "num" : "" }, cell)))))));
+  }
+
+  // One concise sentence per trace event, from its redacted payload.
+  function explain(e) {
+    const p = e.payload || {};
+    const who = (e.actor || "").replace("agent:", "");
+    switch (e.event_type) {
+      case "ticket_created": return "The complaint was recorded as a ticket.";
+      case "run_configured": return `Run configured: ${p.architecture || ""} agent, model ${p.model_id || "?"}, prompt ${p.prompt_version || "?"}.`;
+      case "model_call": return `Model call (${who}): ${p.outcome}${p.input_tokens != null ? `, ${p.input_tokens}+${p.output_tokens ?? "?"} tokens` : ""}${p.latency_ms != null ? `, ${p.latency_ms} ms` : ""}${p.error_code ? `, ${p.error_code}` : ""}.`;
+      case "tool_requested": return `${who} asks for ${p.tool}${p.args && p.args.order_id ? ` (${p.args.order_id})` : ""}${p.args && p.args.amount_minor ? ` for ${p.args.amount_minor} paise` : ""}.`;
+      case "tool_finished": return `${p.tool} returned ${p.status}${p.error_code ? ` (${p.error_code})` : ""}.`;
+      case "tool_rejected": return `${p.tool} was refused by the tools: ${p.error_code}.`;
+      case "tool_retried": return `${p.tool} is retried after ${p.error_code}.`;
+      case "proposal_created": return "A refund proposal was stored and sent for approval.";
+      case "approval_decided": return `A ${p.reviewer_role || "system"} decided: ${p.decision}.`;
+      case "refund_reserved": return "The refund amount was reserved against the order.";
+      case "refund_executed": return `The payment provider answered: ${p.status}.`;
+      case "refund_reconciled": return `The refund was checked with the provider: ${p.status}.`;
+      case "ticket_updated": return `Ticket status is now ${p.status || "updated"}.`;
+      case "run_status_changed": return `Run is ${p.status}.`;
+      case "run_halted": return `The run stopped early: ${p.stop_reason}.`;
+      case "agent_finished": return `Finished (${p.route || "no route"}), stop reason ${p.stop_reason || "?"}.`;
+      default: return e.event_type.replaceAll("_", " ") + ".";
+    }
+  }
+
+  // Run `load` now if a token is saved, and whenever the token form is submitted.
+  function start(load) {
+    const run = async () => {
+      statusLine.className = "muted"; statusLine.textContent = "Loading…";
+      try { await load(); statusLine.textContent = `${new Date().toLocaleTimeString()}`; }
+      catch (error) { statusLine.className = "bad"; statusLine.textContent = error.message; }
+    };
+    document.getElementById("token-form").addEventListener("submit", (event) => {
+      event.preventDefault();
+      try { sessionStorage.setItem(TOKEN_KEY, tokenBox.value.trim()); } catch (e) {}
+      run();
+    });
+    if (tokenBox.value) run();
+  }
+
+  const $ = (id) => document.getElementById(id);
+  return { el, api, json, pct, rate, num, ms, money, tag, cls, table, explain, start, $ };
+})();
+</script>
+{% block page_script %}{% endblock %}
+{% endblock %}

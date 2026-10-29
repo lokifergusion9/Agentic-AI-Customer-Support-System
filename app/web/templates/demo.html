@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% block title %}Agent demo{% endblock %}
+
+{% block head %}
+<style>
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+  ol.plain li { margin: 4px 0; }
+  .pill { font-size: 12px; padding: 0 7px; border-radius: 99px; border: 1px solid var(--line); }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1>Agent demo</h1>
+<p class="muted">
+  A customer complaint, the workflow it triggers, the evidence and policy the agent used, the
+  reviewer's decision and the final outcome. Everything here goes through the same API and the
+  same authorization as any other client. Events are structured facts, never the model's
+  private reasoning.
+</p>
+
+<section class="panel">
+  <h2>Tokens</h2>
+  <div class="grid2">
+    <div>
+      <label for="customer-token">Customer token (JWT)</label>
+      <textarea id="customer-token" rows="2" spellcheck="false" autocomplete="off"
+        placeholder="uv run python -m scripts.mint_token auth|alice"></textarea>
+    </div>
+    <div>
+      <label for="reviewer-token">Reviewer token (JWT)</label>
+      <textarea id="reviewer-token" rows="2" spellcheck="false" autocomplete="off"
+        placeholder="uv run python -m scripts.mint_token auth|reviewer_riya --role reviewer"></textarea>
+    </div>
+  </div>
+</section>
+
+<section class="panel" id="complaint-panel">
+  <h2>1. Customer complaint</h2>
+  <form id="complaint-form">
+    <label for="message">What the customer writes</label>
+    <textarea id="message" rows="3">I returned my headphones last week, but I still haven't received my refund.</textarea>
+    <label for="order" style="margin-top: 8px">Order ID (optional)</label>
+    <input id="order" value="ord_1001" autocomplete="off">
+    <div class="row" style="margin-top: 10px">
+      <button class="primary" type="submit" id="submit">Submit complaint</button>
+      <span id="complaint-status" class="muted" role="status"></span>
+    </div>
+  </form>
+</section>
+
+<div class="grid2">
+  <section class="panel" id="timeline-panel">
+    <h2>2. Workflow timeline</h2>
+    <ol id="timeline" class="plain muted"><li>Nothing yet.</li></ol>
+  </section>
+
+  <section class="panel" id="evidence-panel">
+    <h2>3. Evidence and policy</h2>
+    <div id="evidence" class="muted">Nothing yet.</div>
+  </section>
+</div>
+
+<section class="panel" id="approval-panel">
+  <h2>4. Approval queue</h2>
+  <p class="muted">
+    The reviewer's decision is the only thing that authorizes a refund. The full queue is on the
+    <a href="/review">review screen</a>.
+  </p>
+  <div id="approvals" class="muted">Nothing waiting.</div>
+</section>
+
+<section class="panel" id="outcome-panel">
+  <h2>5. Final outcome</h2>
+  <div id="outcome" class="muted">The run has not finished.</div>
+</section>
+{% endblock %}
+
+{% block script %}
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const keys = { customer: "demo_customer_token", reviewer: "demo_reviewer_token" };
+  for (const [role, key] of Object.entries(keys)) {
+    const box = $(`${role}-token`);
+    try { box.value = sessionStorage.getItem(key) || ""; } catch (e) {}
+    box.addEventListener("change", () => { try { sessionStorage.setItem(key, box.value.trim()); } catch (e) {} });
+  }
+  let current = { ticketId: null, runId: null };
+
+  function el(tag, attrs = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(attrs)) {
+      if (key === "class") node.className = value; else node.setAttribute(key, value);
+    }
+    for (const child of children) {
+      if (child == null) continue;
+      node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+    }
+    return node;
+  }
+  const rupees = (minor) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(minor / 100);
+
+  async function api(role, method, path, body) {
+    const token = $(`${role}-token`).value.trim();
+    const response = await fetch(path, {
+      method,
+      headers: { Authorization: `Bearer ${token}`, ...(body ? { "Content-Type": "application/json" } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = data.message || data.detail || response.statusText;
+      throw new Error(`${data.error_code || response.status}: ${typeof message === "string" ? message : JSON.stringify(message)}`);
+    }
+    return data;
+  }
+
+  // One concise sentence per event, from the redacted payload.
+  function explain(e) {
+    const p = e.payload || {};
+    switch (e.event_type) {
+      case "ticket_created": return "The complaint was recorded as a ticket.";
+      case "run_configured": return `Run configured: ${p.architecture || ""} agent, model ${p.model_id || "?"}, prompt ${p.prompt_version || "?"}.`;
+      case "model_call": return `Model call (${e.actor.replace("agent:", "")}): ${p.outcome}${p.input_tokens != null ? `, ${p.input_tokens}+${p.output_tokens} tokens` : ""}.`;
+      case "tool_requested": return `${e.actor.replace("agent:", "")} asks for ${p.tool}${p.args && p.args.order_id ? ` (${p.args.order_id})` : ""}.`;
+      case "tool_finished": return `${p.tool} returned ${p.status}${p.error_code ? ` (${p.error_code})` : ""}.`;
+      case "tool_rejected": return `${p.tool} was refused: ${p.error_code}.`;
+      case "tool_retried": return `${p.tool} is retried after ${p.error_code}.`;
+      case "proposal_created": return `A refund of ${p.amount_minor != null ? rupees(p.amount_minor) : "?"} was proposed and is waiting for a reviewer.`;
+      case "approval_decided": return `A ${p.reviewer_role || "system"} decided: ${p.decision}.`;
+      case "refund_reserved": return "The refund amount was reserved against the order.";
+      case "refund_executed": return `The payment provider answered: ${p.status}.`;
+      case "refund_reconciled": return `The refund was checked with the provider: ${p.status}.`;
+      case "ticket_updated": return `Ticket status is now ${p.status || "updated"}.`;
+      case "run_status_changed": return `Run is ${p.status}.`;
+      case "run_halted": return `The run stopped early: ${p.stop_reason}.`;
+      case "agent_finished": return `Finished (${p.route || "no route"}): ${p.stop_reason || ""}.`;
+      default: return e.event_type.replaceAll("_", " ") + ".";
+    }
+  }
+
+  function renderTimeline(events) {
+    $("timeline").replaceChildren(...events.map((e) =>
+      el("li", {}, el("code", {}, `#${e.sequence_number}`), " ", explain(e), " ",
+        el("span", { class: "muted" }, new Date(e.created_at).toLocaleTimeString()))));
+  }
+
+  function renderEvidence(run, events) {
+    const out = run.output || {};
+    const tools = events.filter((e) => e.event_type === "tool_finished" && e.payload.status === "ok").map((e) => e.payload.tool);
+    const citations = (out.policy_references || []).length ? out.policy_references : [].concat(
+      ...events.filter((e) => e.payload.tool === "search_policy" && e.payload.citations).map((e) => e.payload.citations));
+    const list = (items) => items.length ? el("ul", { class: "plain" }, ...[...new Set(items)].map((i) => el("li", {}, el("code", {}, i)))) : el("span", { class: "muted" }, "none");
+    $("evidence").replaceChildren(el("dl", {},
+      el("dt", {}, "Category"), el("dd", {}, out.category || "—"),
+      el("dt", {}, "Order"), el("dd", {}, out.order_id ? el("code", {}, out.order_id) : "—"),
+      el("dt", {}, "Facts read from"), el("dd", {}, list(tools)),
+      el("dt", {}, "Policy citations"), el("dd", {}, list(citations)),
+      el("dt", {}, "Code checks"), el("dd", {}, (out.validation_problems || []).length
+        ? el("span", { class: "warn" }, out.validation_problems.join(", ")) : el("span", { class: "ok" }, "no problems found"))));
+    $("evidence").className = "";
+  }
+
+  function renderOutcome(run) {
+    const out = run.output || {};
+    const done = ["completed", "escalated", "failed"].includes(run.status);
+    $("outcome").className = "";
+    $("outcome").replaceChildren(el("dl", {},
+      el("dt", {}, "Run"), el("dd", {}, el("span", { class: `tag ${run.status === "completed" ? "ok" : run.status === "failed" ? "bad" : "warn"}` }, run.status)),
+      el("dt", {}, "Route"), el("dd", {}, out.route || "—"),
+      el("dt", {}, "Refund"), el("dd", {}, out.refund_status ? `${out.refund_status} (confirmed by the payment provider)` : "none"),
+      el("dt", {}, "Told to the customer"), el("dd", {}, out.final_response || (done ? "—" : "Not finished yet."))));
+  }
+
+  async function renderApprovals(run) {
+    const box = $("approvals");
+    if (!$("reviewer-token").value.trim()) { box.textContent = "Paste a reviewer token to see the queue."; return; }
+    let queue = [];
+    try { queue = (await api("reviewer", "GET", "/approvals")).filter((a) => a.run_id === run.id); }
+    catch (error) { box.replaceChildren(el("span", { class: "bad" }, error.message)); return; }
+    if (!queue.length) { box.className = "muted"; box.textContent = run.status === "waiting_for_approval" ? "Waiting for a reviewer you can act as." : "Nothing waiting."; return; }
+    box.className = "";
+    box.replaceChildren(...queue.map((a) => {
+      const result = el("p", { role: "status" });
+      const decide = async (decision) => {
+        if (!confirm(`${decision === "approved" ? "Approve" : "Reject"} a refund of ${rupees(a.amount_minor)} for ${a.order_id}?`)) return;
+        result.textContent = "Saving the decision and resuming the run…";
+        try { await api("reviewer", "POST", `/approvals/${encodeURIComponent(a.approval_id)}/decision`, { decision }); await refresh(); }
+        catch (error) { result.className = "bad"; result.textContent = error.message; }
+      };
+      const approve = el("button", { class: "approve", type: "button" }, "Approve");
+      const reject = el("button", { class: "reject", type: "button" }, "Reject");
+      approve.addEventListener("click", () => decide("approved"));
+      reject.addEventListener("click", () => decide("rejected"));
+      return el("div", {}, el("dl", {},
+        el("dt", {}, "Proposal"), el("dd", {}, `${rupees(a.amount_minor)} refund for ${a.order_id} (${a.required_role})`),
+        el("dt", {}, "Reason"), el("dd", {}, a.reason),
+        el("dt", {}, "Evidence"), el("dd", {}, a.evidence_refs.join(", ") || "none"),
+        el("dt", {}, "Policy"), el("dd", {}, a.policy_refs.join(", ") || "none")),
+        el("div", { class: "row" }, approve, reject), result);
+    }));
+  }
+
+  async function refresh() {
+    if (!current.runId) return;
+    const [run, events] = await Promise.all([
+      api("customer", "GET", `/runs/${encodeURIComponent(current.runId)}`),
+      api("customer", "GET", `/runs/${encodeURIComponent(current.runId)}/events`),
+    ]);
+    renderTimeline(events); renderEvidence(run, events); renderOutcome(run); await renderApprovals(run);
+    $("complaint-status").textContent = `Run ${run.status}`;
+    return run;
+  }
+
+  async function poll() {
+    for (let i = 0; i < 90; i++) {
+      const run = await refresh();
+      if (!run || !["running"].includes(run.status)) return;
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+
+  $("complaint-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = $("complaint-status");
+    $("submit").disabled = true;
+    status.className = "muted"; status.textContent = "Submitting…";
+    try {
+      const order = $("order").value.trim();
+      const ticket = await api("customer", "POST", "/tickets", { message: $("message").value.trim(), ...(order ? { order_id: order } : {}) });
+      const run = await api("customer", "POST", `/tickets/${encodeURIComponent(ticket.id)}/runs`);
+      current = { ticketId: ticket.id, runId: run.id };
+      await poll();
+    } catch (error) { status.className = "bad"; status.textContent = error.message; }
+    $("submit").disabled = false;
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,91 @@
+{% extends "eval_base.html" %}
+{% block title %}Compare{% endblock %}
+
+{% block page %}
+<h1>Compare two configurations</h1>
+<p class="muted">
+  Only compatible experiments are compared: the same dataset version, split, environment and
+  evaluator versions, and limits. Each task is compared on its mean success, so the result names
+  the exact tasks that improved or regressed.
+</p>
+
+<section class="panel">
+  <form id="compare-form" class="grid2">
+    <div>
+      <label for="b-exp">Baseline experiment</label><input id="b-exp" autocomplete="off" placeholder="exp_…">
+      <label for="b-cfg" style="margin-top: 8px">Baseline configuration</label><input id="b-cfg" autocomplete="off" placeholder="lite_specialist_v1">
+    </div>
+    <div>
+      <label for="c-exp">Candidate experiment</label><input id="c-exp" autocomplete="off" placeholder="exp_…">
+      <label for="c-cfg" style="margin-top: 8px">Candidate configuration</label><input id="c-cfg" autocomplete="off" placeholder="lite_specialist_v2">
+    </div>
+    <div class="row"><button class="primary" type="submit">Compare</button></div>
+  </form>
+</section>
+<section id="result"></section>
+{% endblock %}
+
+{% block page_script %}
+<script>
+UI.start(async () => {
+  // Nothing to load until the form is used; the query string prefills it.
+  const q = new URLSearchParams(location.search);
+  for (const [id, key] of [["b-exp", "baseline"], ["b-cfg", "baseline_config"], ["c-exp", "candidate"], ["c-cfg", "candidate_config"]]) {
+    if (q.get(key)) UI.$(id).value = q.get(key);
+  }
+  if (q.get("baseline") && q.get("candidate")) await run();
+});
+
+async function run() {
+  const { el, json, rate, num, ms, money, table, $ } = UI;
+  const side = (e, c) => ({ experiment_id: $(e).value.trim(), ...($(c).value.trim() ? { config_id: $(c).value.trim() } : {}) });
+  let result;
+  try { result = await json("POST", "/eval/comparisons", { baseline: side("b-exp", "b-cfg"), candidate: side("c-exp", "c-cfg") }); }
+  catch (error) { $("result").replaceChildren(el("section", { class: "panel" }, el("p", { class: "bad" }, error.message))); return; }
+
+  const links = (t) => t.run_ids.flatMap((id, i) => [i ? " " : "", el("a", { href: `/ui/runs/${encodeURIComponent(id)}` }, "run")]);
+  const s = result.summary;
+  const list = (ids, which) => ids.length ? table(["Task", "Baseline", "Candidate", "Candidate's failed checks"],
+    ids.map((id) => { const t = result.tasks.find((x) => x.task_id === id);
+      return { cells: [t.task_id,
+        el("span", {}, rate({ value: t.baseline.mean_success }), " · ", links(t.baseline)),
+        el("span", {}, rate({ value: t.candidate.mean_success }), " · ", links(t.candidate)),
+        el("div", {}, t.candidate.failures.map((f) => el("div", {}, el("code", {}, f))))] }; }))
+    : el("p", { class: "muted" }, `No ${which} tasks.`);
+
+  const kind = { verified_success_rate: "rate", strict_success_rate: "rate", evaluation_coverage: "rate", executed_violation_rate: "rate",
+    estimated_cost_per_successful_run_usd: "money", active_ms_p50: "ms", active_ms_p95: "ms" };
+  const lowerIsBetter = new Set(["executed_violation_rate", "tool_calls_per_run", "model_calls_per_run", "tokens_per_run",
+    "estimated_cost_per_successful_run_usd", "active_ms_p50", "active_ms_p95"]);
+  const show = (name, v) => v == null ? "n/a" : kind[name] === "rate" ? `${(v * 100).toFixed(0)}%`
+    : kind[name] === "money" ? money(v) : kind[name] === "ms" ? ms(v) : num(v);
+  const change = (name, d) => {
+    if (d == null) return "n/a";
+    const sign = d > 0 ? "+" : d < 0 ? "−" : "";
+    const size = Math.abs(d);
+    return sign + (kind[name] === "rate" ? `${(size * 100).toFixed(0)} pts` : kind[name] === "money" ? money(size) : kind[name] === "ms" ? ms(size) : num(size));
+  };
+  const diffRows = Object.entries(result.differences).map(([name, d]) => {
+    const better = d.difference == null || d.difference === 0 ? "" : (d.difference < 0) === lowerIsBetter.has(name) ? "up" : "down";
+    return { cells: [name.replaceAll("_", " "), show(name, d.baseline), show(name, d.candidate), el("span", { class: better }, change(name, d.difference))] };
+  });
+
+  const categoryRows = Object.entries(result.by_category).map(([cat, d]) => ({ cells: [cat,
+    show("verified_success_rate", d.verified_success_rate.baseline), show("verified_success_rate", d.verified_success_rate.candidate),
+    change("verified_success_rate", d.verified_success_rate.difference)] }));
+
+  $("result").replaceChildren(
+    el("section", { class: "panel" }, el("h2", {}, "Summary"), el("p", {},
+      `${result.baseline.config_id} (${result.baseline.runs} runs) → ${result.candidate.config_id} (${result.candidate.runs} runs) on ${result.tasks_compared} shared tasks: `,
+      el("strong", { class: "up" }, `${s.improved} improved`), ", ", el("strong", { class: "down" }, `${s.regressed} regressed`),
+      `, ${s.unchanged} unchanged, ${s.not_comparable} not comparable.`),
+      el("p", { class: "muted" }, s.sign_test_p == null ? "No task changed, so there is nothing to test."
+        : `Sign test over the changed tasks: p = ${s.sign_test_p.toFixed(3)}. With few changed tasks no difference is conclusive.`)),
+    el("section", { class: "panel" }, el("h2", {}, "Regressed tasks"), list(result.regressed_tasks, "regressed")),
+    el("section", { class: "panel" }, el("h2", {}, "Improved tasks"), list(result.improved_tasks, "improved")),
+    el("section", { class: "panel" }, el("h2", {}, "Differences"), table(["Measure", "Baseline", "Candidate", "Change"], diffRows)),
+    el("section", { class: "panel" }, el("h2", {}, "By category (verified success)"), table(["Category", "Baseline", "Candidate", "Change"], categoryRows)));
+}
+document.addEventListener("submit", (event) => { if (event.target.id === "compare-form") { event.preventDefault(); run(); } });
+</script>
+{% endblock %}

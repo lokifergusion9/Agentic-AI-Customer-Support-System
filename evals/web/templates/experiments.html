@@ -1,0 +1,42 @@
+{% extends "eval_base.html" %}
+{% block title %}Experiments{% endblock %}
+
+{% block page %}
+<h1>Experiments</h1>
+<p class="muted">
+  Success is verified success over the runs that could be scored; coverage is how many of the
+  planned runs that was. Cost is an estimate at paid rates (the free tier costs nothing) and is
+  <em>unknown</em> until a price is registered or when the model reported no usage.
+</p>
+<section class="panel" id="list"><p class="muted">Paste an operator token to load.</p></section>
+{% endblock %}
+
+{% block page_script %}
+<script>
+UI.start(async () => {
+  const { el, json, pct, money, num, table, tag, $ } = UI;
+  const experiments = await json("GET", "/eval/experiments");
+  if (!experiments.length) { $("list").replaceChildren(el("p", { class: "muted" }, "No experiments yet.")); return; }
+  const headers = ["Experiment", "Configurations", "Dataset · split", "Progress",
+    "Verified success", "Coverage", { label: "Tokens / success", num: true }, { label: "Est. cost / success", num: true }, "Started"];
+  const rows = experiments.map((e) => {
+    const done = e.planned_runs - (e.progress.queued || 0) - (e.progress.running || 0);
+    const configs = Object.entries(e.configs);
+    const each = (fn) => el("div", {}, configs.map(([, c]) => el("div", {}, fn(c))));
+    return { cells: [
+      el("div", {}, el("a", { href: `/ui/experiments/${encodeURIComponent(e.id)}` }, e.name), " ", tag(e.status),
+        el("div", { class: "muted" }, el("code", {}, e.id))),
+      el("div", {}, configs.map(([id]) => el("span", { class: "chip" }, id))),
+      `${e.dataset_version} · ${e.split}${e.repetitions > 1 ? ` · ${e.repetitions} reps` : ""}`,
+      el("div", {}, el("progress", { max: e.planned_runs, value: done }), el("div", { class: "muted" }, `${done}/${e.planned_runs} runs`)),
+      each((c) => pct(c.verified_success_rate)),
+      each((c) => pct(c.evaluation_coverage)),
+      each((c) => num(c.tokens_per_successful_run, 0)),
+      each((c) => money(c.estimated_cost_per_successful_run_usd)),
+      e.started_at ? new Date(e.started_at).toLocaleString() : "not started",
+    ] };
+  });
+  $("list").replaceChildren(table(headers, rows));
+});
+</script>
+{% endblock %}

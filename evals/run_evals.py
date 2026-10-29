@@ -3,7 +3,7 @@
     uv run python -m evals.run_evals create --name pilot --dataset support-v1 --split pilot \
         --config scripted_correct [--config settings] [--repetitions 1] [--key pilot-1]
     uv run python -m evals.run_evals rerun <experiment_id>           # same plan, new experiment
-    uv run python -m evals.run_evals work            # claim and run eval_attempt jobs
+    uv run python -m evals.run_evals work [--drain]  # claim and run eval_attempt jobs
     uv run python -m evals.run_evals status <experiment_id>
 
 `--config` is a registered configuration (lite_single_v1, ...), `scripted_<script>` (free, no API
@@ -19,13 +19,15 @@ import threading
 
 import httpx
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import SCHEMA
 from app.db.session import get_engine
+from app.jobs import queue
 from app.jobs.handlers import HandlerContext
-from app.jobs.worker import WorkerConfig, run_worker
+from app.jobs.worker import WorkerConfig, process_next
 from app.policies.embeddings import get_embedder
 from evals.configs import named_config
 from evals.db import EVAL_SCHEMA
@@ -103,8 +105,21 @@ def estimate(args: argparse.Namespace) -> None:
         print("  no quota error seen yet: the daily limit is still unmeasured")
 
 
-def work(_: argparse.Namespace) -> None:
+def ensure_eval_database(url: str, *, allow_any: bool = False) -> None:
+    """Every attempt empties the business tables, so only a database made for it may be used."""
+    name = make_url(url).database or ""
+    if not allow_any and not name.endswith(("_eval", "_test")):
+        raise SystemExit(
+            f"refusing to run attempts on database {name!r}: each attempt empties its business "
+            "tables. Use a database whose name ends in _eval (see `scripts.dev setup`), or pass "
+            "--allow-any-database if you really mean it."
+        )
+
+
+def work(args: argparse.Namespace) -> None:
+    """Run eval_attempt jobs. With --drain, stop when none is due (a quota wait is not due)."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    ensure_eval_database(get_settings().database_url, allow_any=args.allow_any_database)
     engine = get_engine()
     ctx = EvalContext(mocks=mock_clients(), embedder=get_embedder())
     install(ctx)
@@ -113,7 +128,14 @@ def work(_: argparse.Namespace) -> None:
         signal.signal(signum, lambda *_: stop.set())
     # Eval attempts only: the agent's own workflow jobs belong to the app worker.
     config = WorkerConfig(job_types=[JOB_TYPE], lease_seconds=300)
-    run_worker(lambda: Session(engine), HandlerContext(None, engine), config, stop)  # type: ignore[arg-type]
+    handler_ctx = HandlerContext(None, engine)  # type: ignore[arg-type]
+    while not stop.is_set():
+        with Session(engine) as db:
+            queue.requeue_expired(db)  # a dead worker's job goes back to the queue
+        if not process_next(lambda: Session(engine), handler_ctx, config):
+            if args.drain:
+                break
+            stop.wait(config.poll_seconds)
 
 
 def status(args: argparse.Namespace) -> None:
@@ -155,7 +177,10 @@ def main() -> None:
     again.add_argument("experiment_id")
     again.add_argument("--key", help="idempotency key of the new experiment")
     again.set_defaults(func=rerun)
-    commands.add_parser("work").set_defaults(func=work)
+    worker = commands.add_parser("work")
+    worker.add_argument("--drain", action="store_true", help="exit when no job is due")
+    worker.add_argument("--allow-any-database", action="store_true")
+    worker.set_defaults(func=work)
     show = commands.add_parser("status")
     show.add_argument("experiment_id")
     show.set_defaults(func=status)

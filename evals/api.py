@@ -30,6 +30,7 @@ from evals.experiments import ExperimentPlan, create_experiment, register_datase
 from evals.loader import TaskVersionError, load_dataset
 from evals.reports import export_experiment
 from evals.task_format import AgentInput, EvaluatorView
+from evals.web import pages as web_pages
 
 DATASET = (
     r"^[a-z0-9]+(-[a-z0-9]+)*-v[0-9]+$"  # a directory name under evals/datasets/, nothing else
@@ -575,6 +576,7 @@ def export(experiment_id: str, db: Db) -> Response:
 def create_app() -> FastAPI:
     app = FastAPI(title="Agent evaluation platform")
     app.include_router(router)
+    app.include_router(web_pages.router)
     return app
 
 
