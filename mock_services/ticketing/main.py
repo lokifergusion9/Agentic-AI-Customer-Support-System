@@ -85,9 +85,9 @@ def ticket_out(ticket: Ticket) -> TicketOut:
     )
 
 
-def take_write_fault() -> Fault | None:
-    """Pop the next fault for a new write; raise it now if it is an error."""
-    fault = store.faults.pop()
+def take_write_fault(operation: str, local_ticket_id: str) -> Fault | None:
+    """The fault for this new write, if any; raise it now if it is an error."""
+    fault = store.faults.take(operation, queued=True, local_ticket_id=local_ticket_id)
     if fault is not None and fault.mode == "error":
         raise_fault_error(fault)
     return fault
@@ -142,6 +142,10 @@ def reset(request: ResetRequest) -> dict[str, int]:
     return {"tickets": len(tickets)}
 
 
+# Logical operations a keyed fault can target, matched by local_ticket_id.
+OPERATIONS = frozenset({"ticket.create", "ticket.update"})
+
+
 class FaultRequest(FaultRequestBase):
     """Applied to the next `count` new creates or updates, in order. Reads are never faulted.
 
@@ -152,7 +156,7 @@ class FaultRequest(FaultRequestBase):
     mode: Literal["error", "delay", "accept_then_timeout"]
 
 
-add_fault_routes(api, store.faults, FaultRequest)
+add_fault_routes(api, store.faults, FaultRequest, OPERATIONS)
 
 
 @app.get("/health")
@@ -200,7 +204,7 @@ def create_ticket(request: TicketCreate, response: Response) -> TicketOut:
         if replay is not None:
             response.status_code = status.HTTP_200_OK
             return replay
-        fault = take_write_fault()
+        fault = take_write_fault("ticket.create", request.local_ticket_id)
 
     if fault is not None and fault.mode == "delay":
         hold_response(fault)
@@ -283,7 +287,7 @@ def update_ticket(ref: str, request: TicketUpdate, response: Response) -> Update
             return replay
         if ref not in store.tickets:
             raise not_found()
-        fault = take_write_fault()
+        fault = take_write_fault("ticket.update", store.tickets[ref].local_ticket_id)
 
     if fault is not None and fault.mode == "delay":
         hold_response(fault)

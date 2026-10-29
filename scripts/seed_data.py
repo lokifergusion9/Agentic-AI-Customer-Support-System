@@ -296,8 +296,12 @@ def shipment(scenario: Scenario) -> Shipment:
 
 def mock_payments_state(today: date) -> list[dict[str, Any]]:
     """Payments and refunds held by the mock payment provider (W1.8)."""
+    return payments_state(scenarios(today))
+
+
+def payments_state(all_scenarios: list[Scenario]) -> list[dict[str, Any]]:
     payments = []
-    for scenario in scenarios(today):
+    for scenario in all_scenarios:
         refunds = []
         if scenario.past_refund:
             refunds.append(
@@ -352,8 +356,12 @@ def courier_events(scenario: Scenario) -> list[dict[str, str]]:
 
 def mock_shipping_state(today: date) -> list[dict[str, Any]]:
     """Shipments held by the mock shipping provider (W1.9)."""
+    return shipping_state(scenarios(today))
+
+
+def shipping_state(all_scenarios: list[Scenario]) -> list[dict[str, Any]]:
     shipments = []
-    for scenario in scenarios(today):
+    for scenario in all_scenarios:
         current = shipment(scenario)
         shipments.append(
             {
@@ -373,8 +381,12 @@ def mock_ticketing_state(today: date) -> list[dict[str, Any]]:
 
     They match the tickets inserted by `insert_past_refund`, linked by external_ticket_ref.
     """
+    return ticketing_state(scenarios(today))
+
+
+def ticketing_state(all_scenarios: list[Scenario]) -> list[dict[str, Any]]:
     tickets = []
-    for scenario in scenarios(today):
+    for scenario in all_scenarios:
         if not scenario.past_refund:
             continue
         assert scenario.return_ and scenario.return_.received
@@ -399,14 +411,7 @@ def seed(connection: Connection, today: date) -> list[Scenario]:
     """Replace all business data with the scenarios as of `today`."""
     tables = ", ".join(f"{SCHEMA}.{table}" for table in BUSINESS_TABLES)
     connection.execute(text(f"TRUNCATE {tables}"))
-
-    connection.execute(
-        text(
-            f"INSERT INTO {SCHEMA}.customers (id, external_auth_subject, name, email) "
-            "VALUES (:id, :subject, :name, :email)"
-        ),
-        [dict(zip(("id", "subject", "name", "email"), row, strict=True)) for row in CUSTOMERS],
-    )
+    insert_customers(connection, CUSTOMERS)
 
     all_scenarios = scenarios(today)
     for scenario in all_scenarios:
@@ -414,6 +419,17 @@ def seed(connection: Connection, today: date) -> list[Scenario]:
         if scenario.past_refund:
             insert_past_refund(connection, scenario)
     return all_scenarios
+
+
+def insert_customers(connection: Connection, rows: list[tuple[str, str, str, str]]) -> None:
+    """Rows of (id, external_auth_subject, name, email)."""
+    connection.execute(
+        text(
+            f"INSERT INTO {SCHEMA}.customers (id, external_auth_subject, name, email) "
+            "VALUES (:id, :subject, :name, :email)"
+        ),
+        [dict(zip(("id", "subject", "name", "email"), row, strict=True)) for row in rows],
+    )
 
 
 def insert_order(connection: Connection, scenario: Scenario) -> None:

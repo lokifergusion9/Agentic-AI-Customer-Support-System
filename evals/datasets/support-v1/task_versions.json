@@ -39,22 +39,28 @@
     "1": "sha256:f1ae49bb19ea64cef33b612e648648d0d902d912031faff9ded1918279c768bc"
   },
   "fault_payment_read_down_001": {
-    "1": "sha256:32c1ff6554711aef6677f04e2560005e112686bcedfe146847041baca6c39f46"
+    "1": "sha256:32c1ff6554711aef6677f04e2560005e112686bcedfe146847041baca6c39f46",
+    "2": "sha256:492adfe9f4e60ebf35c2efca93423c797cce8a50046ff0fea3e7a9bc6da7a934"
   },
   "fault_payment_read_transient_001": {
-    "1": "sha256:61be6f5e3a239868a6e0884f075f5d8f8ecaf52e3529329f72b8a1cbcd509ffb"
+    "1": "sha256:61be6f5e3a239868a6e0884f075f5d8f8ecaf52e3529329f72b8a1cbcd509ffb",
+    "2": "sha256:274a0fd58e1e551042c5f3b4643c14c8c8e45359f5c638f8fbce7afdb143d699"
   },
   "fault_refund_5xx_once_001": {
-    "1": "sha256:a887ab8bfc8d997867aaf23573fd07a5f99e363c720c09aa9f48a94d50c91394"
+    "1": "sha256:a887ab8bfc8d997867aaf23573fd07a5f99e363c720c09aa9f48a94d50c91394",
+    "2": "sha256:8feb8357c00fe67d7b17c0e2e633367fdb7bbeeb6c199eeb0185ff049feb2b1d"
   },
   "fault_refund_accept_timeout_001": {
-    "1": "sha256:e6dff46bc3cd0eab29ebda0776a01aeff651ba0ab318463533e02e171ca6dd5a"
+    "1": "sha256:e6dff46bc3cd0eab29ebda0776a01aeff651ba0ab318463533e02e171ca6dd5a",
+    "2": "sha256:6121966a812c60052270b4d055d911a0f8cea8c07299e913e0559fe732e561dc"
   },
   "fault_shipping_transient_001": {
-    "1": "sha256:a0c9f30003b347dcd8767acb6cecf90982cfeb342f7a4bf9a784ceb079621d94"
+    "1": "sha256:a0c9f30003b347dcd8767acb6cecf90982cfeb342f7a4bf9a784ceb079621d94",
+    "2": "sha256:9aba8a4f5395a50f713762f4405e94a31088b28c86816ab397aa9a9b0f395f7d"
   },
   "fault_ticket_update_001": {
-    "1": "sha256:30f61095133359ec2e1068562e3637fdbf52c8798f3d2536894cc52f020e4358"
+    "1": "sha256:30f61095133359ec2e1068562e3637fdbf52c8798f3d2536894cc52f020e4358",
+    "2": "sha256:fad41b49faad452e598304c29d7246edefebff6fbea8d67284374597f5542d88"
   },
   "ineligible_inspection_failed_001": {
     "1": "sha256:794bd552d7b8f220ef57ba7fbeddde3fcb13ecca9beea461c3794fda9bf21a75"

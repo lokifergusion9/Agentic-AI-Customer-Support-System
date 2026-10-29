@@ -71,8 +71,8 @@ def shipment_out(shipment: Shipment) -> ShipmentOut:
     )
 
 
-def apply_read_fault() -> None:
-    fault = store.faults.pop()
+def apply_read_fault(order_id: str) -> None:
+    fault = store.faults.take("shipment.read", queued=True, order_id=order_id)
     if fault is None:
         return
     if fault.mode == "error":
@@ -151,6 +151,10 @@ def add_event(tracking_id: str, request: NewEvent) -> ShipmentOut:
         return shipment_out(shipment)
 
 
+# Both shipment reads are one logical operation, matched by order_id.
+OPERATIONS = frozenset({"shipment.read"})
+
+
 class FaultRequest(FaultRequestBase):
     """Applied to the next `count` shipment reads, in order.
 
@@ -160,7 +164,7 @@ class FaultRequest(FaultRequestBase):
     mode: Literal["error", "delay"]
 
 
-add_fault_routes(api, store.faults, FaultRequest)
+add_fault_routes(api, store.faults, FaultRequest, OPERATIONS)
 
 
 @app.get("/health")
@@ -174,7 +178,9 @@ def health() -> dict[str, str]:
 
 @api.get("/shipments/{tracking_id}")
 def get_shipment(tracking_id: str) -> ShipmentOut:
-    apply_read_fault()
+    with store.lock:
+        known = store.shipments.get(tracking_id)
+    apply_read_fault(known.order_id if known else "")
     with store.lock:
         shipment = store.shipments.get(tracking_id)
         if shipment is None:
@@ -185,7 +191,7 @@ def get_shipment(tracking_id: str) -> ShipmentOut:
 @api.get("/shipments")
 def find_shipments(order_id: Annotated[str, Query(min_length=1)]) -> list[ShipmentOut]:
     """Shipments for an order; an empty list when the courier has none."""
-    apply_read_fault()
+    apply_read_fault(order_id)
     with store.lock:
         return [shipment_out(s) for s in store.shipments.values() if s.order_id == order_id]
 

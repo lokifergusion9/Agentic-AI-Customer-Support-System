@@ -1,7 +1,8 @@
 # The payment API stays down past the retries. No eligibility decision without it: refer, no
 # refund (human_review_exceptions_v1 section 6).
+# v2 (2026-10-29): the fault names its order, so it fires only on that order's calls (W4.4).
 id: fault_payment_read_down_001
-version: 1
+version: 2
 category: tool_failure
 difficulty: hard
 scenario_family: payment_read_down
@@ -42,6 +43,7 @@ environment_fixture:
   faults:
   - operation: payments.get_payment
     kind: http_5xx
+    order_id: ord_2173
     times: 10
 evaluation:
   expected_customer_id: cus_chitra

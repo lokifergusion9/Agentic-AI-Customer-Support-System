@@ -54,6 +54,7 @@ Invariant = Literal[
 
 
 class Strict(BaseModel):
+    # Frozen models with tuples, not lists: a loaded task is shared, and nothing may change it.
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
@@ -90,7 +91,7 @@ class OrderFixture(Strict):
     placed_at: date
     delivered_at: date | None = None
     shipping_minor: int = Field(default=0, ge=0)
-    items: list[OrderItemFixture] = Field(min_length=1)
+    items: tuple[OrderItemFixture, ...] = Field(min_length=1)
 
     @property
     def paid_amount_minor(self) -> int:
@@ -129,7 +130,7 @@ class PaymentFixture(Strict):
     # Pushed to the mock payment API, which is the source of truth for payments (Q2).
     order_id: str
     amount_minor: int = Field(gt=0)
-    refunds: list[PastRefundFixture] = []
+    refunds: tuple[PastRefundFixture, ...] = ()
 
 
 class ShipmentFixture(Strict):
@@ -138,22 +139,41 @@ class ShipmentFixture(Strict):
     estimated_delivery: date
 
 
+FaultOperation = Literal[
+    "payments.get_payment",
+    "payments.create_refund",
+    "shipping.get_shipment",
+    "ticketing.update_ticket",
+]
+
+
 class FaultFixture(Strict):
-    # Keyed by logical operation, not by HTTP call, so a retry does not skip the fault (W4.4).
-    operation: str
+    # Keyed by logical operation, not by request position, so every configuration meets the
+    # same failure whichever path it takes (W4.4, E§22).
+    operation: FaultOperation
     kind: Literal["timeout", "http_5xx", "unknown_outcome"]
-    on_call: int = Field(default=1, gt=0)  # which call of that operation fails
-    times: int = Field(default=1, gt=0)  # how many consecutive calls fail
+    order_id: str | None = None  # only that order's calls (payments and shipping operations)
+    on_call: int = Field(default=1, gt=0)  # which matching call fails first
+    times: int = Field(default=1, gt=0)  # how many consecutive matching calls fail
+
+    @model_validator(mode="after")
+    def _supported(self) -> Self:
+        writes = ("payments.create_refund", "ticketing.update_ticket")
+        if self.kind == "unknown_outcome" and self.operation not in writes:
+            raise ValueError("unknown_outcome needs a write: the provider accepts, then times out")
+        if self.order_id is not None and self.operation.startswith("ticketing."):
+            raise ValueError("ticketing faults match the ticket, not an order")
+        return self
 
 
 class EnvironmentFixture(Strict):
     as_of: date
-    customers: list[CustomerFixture] = Field(min_length=1)
-    orders: list[OrderFixture] = []
-    returns: list[ReturnFixture] = []
-    payments: list[PaymentFixture] = []
-    shipments: list[ShipmentFixture] = []
-    faults: list[FaultFixture] = []
+    customers: tuple[CustomerFixture, ...] = Field(min_length=1)
+    orders: tuple[OrderFixture, ...] = ()
+    returns: tuple[ReturnFixture, ...] = ()
+    payments: tuple[PaymentFixture, ...] = ()
+    shipments: tuple[ShipmentFixture, ...] = ()
+    faults: tuple[FaultFixture, ...] = ()
 
     @model_validator(mode="after")
     def _references(self) -> Self:
@@ -207,13 +227,13 @@ class OrderedSteps(Strict):
     """A partial-order constraint (E§13): every step in `requires` happens before `before`."""
 
     before: str
-    requires: list[str] = Field(min_length=1)
+    requires: tuple[str, ...] = Field(min_length=1)
 
 
 class ResponseChecks(Strict):
-    must_mention: list[str] = []
-    must_not_mention: list[str] = []  # e.g. details of another customer's order
-    must_not_claim: list[str] = []  # e.g. "refund has been issued" when it was not
+    must_mention: tuple[str, ...] = ()
+    must_not_mention: tuple[str, ...] = ()  # e.g. details of another customer's order
+    must_not_claim: tuple[str, ...] = ()  # e.g. "refund has been issued" when it was not
 
 
 class Limits(Strict):
@@ -229,14 +249,14 @@ class Evaluation(Strict):
     expected_customer_id: str
     expected_order_id: str | None = None
     # Citations as search_policy returns them: "<document>_v<n>:section_<n>".
-    applicable_policy: list[str] = []
+    applicable_policy: tuple[str, ...] = ()
     resolution: Literal["resolve", "refuse", "escalate", "clarify"]
     approval_required: bool
-    allowed_actions: list[str] = []
-    forbidden_actions: list[str] = []
+    allowed_actions: tuple[str, ...] = ()
+    forbidden_actions: tuple[str, ...] = ()
     outcome: ExpectedOutcome
-    invariants: list[Invariant] = []
-    required_behavior: list[OrderedSteps] = []
+    invariants: tuple[Invariant, ...] = ()
+    required_behavior: tuple[OrderedSteps, ...] = ()
     response_checks: ResponseChecks = ResponseChecks()
     limits: Limits
 

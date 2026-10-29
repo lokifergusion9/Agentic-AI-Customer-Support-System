@@ -574,14 +574,14 @@ Ground rules for every Week 4 task:
   - [x] Constraints (E§16): `UNIQUE(experiment_id, agent_config_id, task_version_id, repetition)`, `UNIQUE(run_id, attempt_number)`, `UNIQUE(attempt_id, sequence_number)`, `UNIQUE(attempt_id, evaluator_name, evaluator_version, dimension)`.
   - [x] Indexes for run status per experiment, events by attempt and sequence, and scores by experiment and category.
   - [x] JSONB for flexible payloads, explicit columns for anything that is filtered on.
-- [ ] **W4.4 — Per-attempt environment** (E§7, Q11). `evals/environment.py`:
+- [x] **W4.4 — Per-attempt environment** (E§7, Q11). `evals/environment.py`:
   1. Take a PostgreSQL advisory lock, so only one attempt uses the environment at a time even if two workers run.
   2. Reset the business tables (reusing the W1.2 reset; `jobs`, policy tables and the `eval` schema are never touched) and reset the three mocks.
   3. Load the task's fixture into PostgreSQL and the mocks, set the injectable clock to `as_of`, and record a fresh `environment_id`.
   4. After the agent finishes, snapshot the final state into `artifacts` and copy the run's audit events into `trace_events`.
 
-  - [ ] **Faults are keyed to logical operations**, not to "the next N requests" (E§22). Extend `mock_services/common.py` so a fault matches, for example, `operation=refund.create, order_id=ord_1042, occurrence=1`. Two configurations that take different paths then still receive the same failure.
-  - [ ] Isolation tests (E§28): repeated attempts start from clean state, fixtures are not mutated globally, one attempt cannot read a previous attempt's environment, and agent-visible data excludes expected outcomes.
+  - [x] **Faults are keyed to logical operations**, not to "the next N requests" (E§22). Extend `mock_services/common.py` so a fault matches, for example, `operation=refund.create, order_id=ord_1042, occurrence=1`. Two configurations that take different paths then still receive the same failure.
+  - [x] Isolation tests (E§28): repeated attempts start from clean state, fixtures are not mutated globally, one attempt cannot read a previous attempt's environment, and agent-visible data excludes expected outcomes.
 
 ### Agents under test
 

@@ -144,6 +144,11 @@ def health() -> dict[str, str]:
 
 @api.get("/payments/{order_id}")
 def get_payment(order_id: str) -> PaymentOut:
+    fault = store.faults.take("payment.get", queued=False, order_id=order_id)
+    if fault is not None:
+        if fault.mode == "error":
+            raise_fault_error(fault)
+        time.sleep(fault.delay_seconds)  # a read has nothing to accept: every delay mode holds
     with store.lock:
         payment = store.payments.get(order_id)
         if payment is None:
@@ -238,7 +243,7 @@ def create_refund(request: RefundRequest, response: Response) -> RefundOut:
             )
 
         # Faults apply only to new, valid refunds; a replay above always returns the stored one.
-        fault = store.faults.pop()
+        fault = store.faults.take("refund.create", queued=True, order_id=request.order_id)
         if fault is not None and fault.mode == "error":
             raise_fault_error(fault)
 
@@ -264,6 +269,10 @@ def create_refund(request: RefundRequest, response: Response) -> RefundOut:
 # --- Fault injection --------------------------------------------------------------------
 
 
+# Logical operations a keyed fault can target, matched by order_id.
+OPERATIONS = frozenset({"payment.get", "refund.create"})
+
+
 class FaultRequest(FaultRequestBase):
     """Applied to the next `count` new refund requests, in order.
 
@@ -274,7 +283,7 @@ class FaultRequest(FaultRequestBase):
     mode: Literal["error", "delay", "accept_then_timeout"]
 
 
-add_fault_routes(api, store.faults, FaultRequest)
+add_fault_routes(api, store.faults, FaultRequest, OPERATIONS)
 
 
 class SettleRequest(BaseModel):

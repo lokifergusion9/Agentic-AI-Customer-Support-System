@@ -1,7 +1,8 @@
 # The first payment lookup times out; the retry succeeds and the refund proceeds normally to
 # approval and execution.
+# v2 (2026-10-29): the fault names its order, so it fires only on that order's calls (W4.4).
 id: fault_payment_read_transient_001
-version: 1
+version: 2
 category: tool_failure
 difficulty: medium
 scenario_family: payment_read_transient
@@ -42,6 +43,7 @@ environment_fixture:
   faults:
   - operation: payments.get_payment
     kind: timeout
+    order_id: ord_2172
 reviewer_behavior:
   decision: approve
   applies_to:

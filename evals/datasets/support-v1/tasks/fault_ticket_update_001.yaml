@@ -1,7 +1,8 @@
 # The refund succeeds but the helpdesk update fails once. Retry only the ticket update; the refund
 # is not repeated (W3.14).
+# v2 (2026-10-29): fault schema gained order_id (W4.4); ticketing faults match the ticket.
 id: fault_ticket_update_001
-version: 1
+version: 2
 category: tool_failure
 difficulty: hard
 scenario_family: ticket_sync_failure

@@ -1,7 +1,8 @@
 # The provider records the refund, then the response times out. Reconciliation finds it; no second
 # refund (W3.12).
+# v2 (2026-10-29): the fault names its order, so it fires only on that order's calls (W4.4).
 id: fault_refund_accept_timeout_001
-version: 1
+version: 2
 category: tool_failure
 difficulty: hard
 scenario_family: refund_outcome_uncertain
@@ -42,6 +43,7 @@ environment_fixture:
   faults:
   - operation: payments.create_refund
     kind: unknown_outcome
+    order_id: ord_1001
 reviewer_behavior:
   decision: approve
   applies_to:

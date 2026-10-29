@@ -1,7 +1,8 @@
 # The shipping API returns 5xx twice, then answers. Bounded retries recover it and the status is
 # reported (W3.16).
+# v2 (2026-10-29): the fault names its order, so it fires only on that order's calls (W4.4).
 id: fault_shipping_transient_001
-version: 1
+version: 2
 category: tool_failure
 difficulty: medium
 scenario_family: shipping_read_transient
@@ -36,6 +37,7 @@ environment_fixture:
   faults:
   - operation: shipping.get_shipment
     kind: http_5xx
+    order_id: ord_2171
     times: 2
 evaluation:
   expected_customer_id: cus_alice

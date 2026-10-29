@@ -1,7 +1,8 @@
 # The refund request gets a 5xx: outcome unknown. Reconcile by idempotency key, send the same key
 # again, and claim success only once confirmed. Exactly one refund (W3.11, W3.16).
+# v2 (2026-10-29): the fault names its order, so it fires only on that order's calls (W4.4).
 id: fault_refund_5xx_once_001
-version: 1
+version: 2
 category: tool_failure
 difficulty: hard
 scenario_family: refund_outcome_uncertain
@@ -42,6 +43,7 @@ environment_fixture:
   faults:
   - operation: payments.create_refund
     kind: http_5xx
+    order_id: ord_1001
 reviewer_behavior:
   decision: approve
   applies_to:

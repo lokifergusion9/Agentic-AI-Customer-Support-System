@@ -60,25 +60,80 @@ class Fault:
     delay_seconds: float
 
 
+@dataclass(frozen=True)
+class KeyedFault:
+    """A failure for one logical operation, from its `occurrence`-th matching call on (E§22).
+
+    Matching by operation and attributes (an order ID, say) instead of by request position
+    means two agents that call the provider in a different order still meet the same failure.
+    """
+
+    operation: str
+    match: tuple[tuple[str, str], ...]
+    occurrence: int
+    count: int
+    fault: Fault
+
+    def matches(self, operation: str, attributes: dict[str, str]) -> bool:
+        return operation == self.operation and all(
+            attributes.get(key) == value for key, value in self.match
+        )
+
+
 class FaultQueue:
-    """Faults applied to the next requests, oldest first. Safe to use from any thread."""
+    """Injected faults, safe to use from any thread.
+
+    Two kinds: keyed faults fire on a logical operation (see KeyedFault); the plain queue
+    applies to the next requests of the operations that consume it, oldest first.
+    """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._faults: list[Fault] = []
+        self._keyed: list[KeyedFault] = []
+        self._seen: list[int] = []  # matching calls so far, per keyed fault
 
     def add(self, fault: Fault, count: int) -> int:
         with self._lock:
             self._faults.extend([fault] * count)
-            return len(self._faults)
+            return len(self._faults) + len(self._keyed)
+
+    def add_keyed(self, fault: KeyedFault) -> int:
+        with self._lock:
+            self._keyed.append(fault)
+            self._seen.append(0)
+            return len(self._faults) + len(self._keyed)
 
     def pop(self) -> Fault | None:
         with self._lock:
             return self._faults.pop(0) if self._faults else None
 
+    def take(self, operation: str, *, queued: bool, **attributes: str) -> Fault | None:
+        """The fault for this call of `operation`, if any.
+
+        Every matching keyed fault counts the call, whether or not it fires. `queued` says
+        whether this operation also consumes the plain queue (the ones that did before keyed
+        faults existed), so old tests keep their meaning.
+        """
+        with self._lock:
+            hit = None
+            for index, keyed in enumerate(self._keyed):
+                if not keyed.matches(operation, attributes):
+                    continue
+                self._seen[index] += 1
+                if hit is None and keyed.occurrence <= self._seen[index] < (
+                    keyed.occurrence + keyed.count
+                ):
+                    hit = keyed.fault
+            if hit is not None:
+                return hit
+            return self._faults.pop(0) if queued and self._faults else None
+
     def clear(self) -> None:
         with self._lock:
             self._faults.clear()
+            self._keyed.clear()
+            self._seen.clear()
 
 
 class FaultRequestBase(BaseModel):
@@ -92,6 +147,12 @@ class FaultRequestBase(BaseModel):
     retryable: bool = True
     # Delay modes: how long to hold the response.
     delay_seconds: float = Field(default=5.0, ge=0, le=60)
+    # Keyed faults: set `operation` to fail that operation from its `occurrence`-th matching
+    # call, for `count` calls. `match` narrows it, e.g. {"order_id": "ord_1042"}. Without
+    # `operation`, the fault goes on the plain queue for the next `count` requests.
+    operation: str | None = None
+    match: dict[str, str] = {}
+    occurrence: int = Field(default=1, ge=1, le=100)
 
     def to_fault(self) -> Fault:
         return Fault(
@@ -104,11 +165,37 @@ class FaultRequestBase(BaseModel):
 
 
 def add_fault_routes(
-    router: APIRouter, faults: FaultQueue, request_model: type[FaultRequestBase]
+    router: APIRouter,
+    faults: FaultQueue,
+    request_model: type[FaultRequestBase],
+    operations: frozenset[str],
 ) -> None:
+    """POST/DELETE /admin/faults. `operations` lists the logical operations this mock fails."""
+
     @router.post("/admin/faults")
     def add_faults(request: request_model) -> dict[str, int]:  # type: ignore[valid-type]
-        return {"queued": faults.add(request.to_fault(), request.count)}
+        if request.operation is None:
+            if request.match or request.occurrence != 1:
+                raise MockError(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    "INVALID_FAULT",
+                    "match and occurrence need an operation.",
+                )
+            return {"queued": faults.add(request.to_fault(), request.count)}
+        if request.operation not in operations:
+            raise MockError(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "UNKNOWN_OPERATION",
+                f"Operations: {', '.join(sorted(operations))}.",
+            )
+        keyed = KeyedFault(
+            operation=request.operation,
+            match=tuple(sorted(request.match.items())),
+            occurrence=request.occurrence,
+            count=request.count,
+            fault=request.to_fault(),
+        )
+        return {"queued": faults.add_keyed(keyed)}
 
     @router.delete("/admin/faults")
     def clear_faults() -> dict[str, int]:
