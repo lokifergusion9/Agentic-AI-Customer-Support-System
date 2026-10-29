@@ -651,6 +651,8 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
 
 ## Week 5 — Comparison, reporting and presentation (Project_2.pdf + §16–§19)
 
+> **Progress (2026-10-29):** done and committed: W5.1, W5.3, W5.4, W5.5. **Half done:** W5.2 (configs, plans, quota deferral built; no real-model runs yet) and W5.6 (screens built and syntax-tested, not yet opened in a real browser). **Not started:** W5.7 demo scenarios, W5.8 `Makefile` and `scripts/dev.py`, W5.9 README, W5.10 diagrams, W5.11 recording, W5.12 résumé entry. W5.11 and W5.12 need real measured results and the user's own recording, so they cannot be completed by code alone. Nothing from Week 4 or 5 has been pushed.
+
 **Done when:** another developer can run the project and **reproduce your reported results** (§16), and you can name the exact tasks that improved or regressed between two configurations (E§27 phase 5).
 
 ### Metrics and comparison
@@ -702,6 +704,7 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
   - [x] Same tasks, environment, limits, reviewer behavior and fault configuration for every config (E§22).
   - [x] When the daily quota runs out, jobs wait (`available_at`) instead of failing, so a long experiment resumes the next day without losing runs.
   - *Built (2026-10-29), real runs still to do:* four registered configs (`evals/configs.py`, prompt v2 in `app/agents/prompts/*_v2.md`), plan manifests in `evals/plans/` (pilot 5, main 150, repetitions 60, model comparison 10), `python -m evals.run_evals create --plan <name>` and `estimate`, the held-out test split behind `--allow-test-split`, and a 429 deferral (the attempt is an infrastructure error, the job waits for the quota without using a retry, and the other queued runs of that model wait with it). Splits are now dev 30 / validation 10 / test 10. The experiments themselves run once the eval database exists (W5.8); their results are recorded in the README (W5.9).
+  - *Status (2026-10-29), **half done**:* the `support_eval` database exists and is migrated (0019) with policies ingested, the three mock services run as light containers (`mocks` dependency group, no torch), and `python -m evals.run_evals work [--drain]` refuses databases not named `*_eval`/`*_test`. **No real-model experiment has been run yet** (pilot, main 150, repetitions 60, model comparison 10, final test split); they depend on the Gemini free-tier quota and must not be faked. Run `estimate --plan main --pilot` after the pilot, register prices in `evals/prices.py` only from real rates the user supplies, and run the final test split only after prompts are frozen (`--allow-test-split`).
 - [x] **W5.3 — Comparison queries** (E§22, E§25). Compare only **compatible** experiments: same dataset version, split, environment and evaluator versions, and limits. Show same-task wins and losses, the **regressed tasks**, and the differences in success rate, coverage, tool calls, tokens, cost and latency.
 
 ### API, reporting and interface
@@ -731,6 +734,10 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
   - **Comparison:** same-task wins and losses, success, cost, latency and coverage differences, regressed tasks.
 
   Display structured events and concise explanations, **not private model reasoning**. The key interaction: click *"refund failures"* → open a failed run → see the wrong amount and the call that caused it.
+
+  *Status (2026-10-29), **half done**:*
+  - *Built:* `/demo` agent screen (`app/web/templates/demo.html`, five panels); evaluation screens in `evals/web/` served by the separate eval app (`uvicorn evals.api:app`): experiments list, experiment detail (scorecard, categories, failure reasons, latency, run list with the "refund failures" shortcut), run detail (agent-saw and hidden ground-truth panels kept apart, findings, state differences, trace with flagged events), comparison. Pages carry no data; they call the `/eval` API with a pasted operator token. `tests/evals/test_ui.py` covers serving, no data in HTML, escaping of hostile IDs, panel separation, and `node --check` on every script.*
+  - *Not done:* the pages have **not been opened in a real browser** against a seeded experiment (only syntax-checked and served through the test client), so runtime JavaScript errors are still possible. Plan: seed a scripted experiment in `support_eval`, run `evals.run_evals work --drain`, start `uvicorn evals.api:app --port 8100`, and click through with an operator token (`uv run python -m scripts.mint_token auth|ops --role operator`). The box stays open until that is done.
 - [ ] **W5.7 — Demo scenarios** (§18, E§31):
   - [ ] **Demo A, successful approved refund:**
     1. The customer submits a complaint.
@@ -761,6 +768,8 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
   | `smoke` | Evaluate the 5 pilot tasks with the scripted adapter |
   | `evaluate` | Launch a selected real-model experiment from a manifest |
   | `report` | Export a completed experiment (W5.5) |
+
+  *Status (2026-10-29), **not started as a task; parts exist**:* the building blocks are in `evals/run_evals.py` (`create`, `estimate`, `rerun`, `work`, `status`) and the report export (`evals/reports.py`). Still to write: the `Makefile`, `scripts/dev.py` with the seven commands (`setup` should also create the `support_eval` database, `seed` imports `support-v1` and the scripted configs, `smoke` runs the 5 pilot tasks with the scripted adapter), and a guard so `smoke`/`evaluate` never run against a non-eval database.
 
 ### Documentation
 
