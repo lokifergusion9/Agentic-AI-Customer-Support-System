@@ -586,7 +586,7 @@ Ground rules for every Week 4 task:
 ### Agents under test
 
 - [x] **W4.5 — Deterministic reviewer simulator** (E§8). When a run waits for approval, the simulator reads `reviewer_behavior`. It approves **only** a proposal matching the permitted action (action, order and amount), rejects anything else, or lets the approval expire by advancing the clock. It decides through the real approval service (W1.15 / W3.4) with a simulator reviewer identity of the required role, so the same authorization checks apply. Results are reported as **simulated approval outcomes**, and time spent waiting is measured separately from active execution.
-- [ ] **W4.6 — Adapter interface and scripted adapter** (E§10). In `evals/adapters/`:
+- [x] **W4.6 — Adapter interface and scripted adapter** (E§10). In `evals/adapters/`:
 
   ```python
   @dataclass
@@ -599,8 +599,8 @@ Ground rules for every Week 4 task:
       async def run(self, task_input: AgentView, context: AttemptContext) -> AgentResult: ...
   ```
 
-  - [ ] The **scripted adapter** is a deterministic fake agent that calls the **same typed tools** (W2.4) as the real agent, so the same ownership and approval enforcement applies. Scripts: correct sequence, refund attempt without approval, another customer's order ID, "refund issued" claimed with no action, a second refund for the same order, and ignoring a tool failure.
-  - [ ] It costs nothing and needs no API key. Tests and `make smoke` use it.
+  - [x] The **scripted adapter** is a deterministic fake agent that calls the **same typed tools** (W2.4) as the real agent, so the same ownership and approval enforcement applies. Scripts: correct sequence, refund attempt without approval, another customer's order ID, "refund issued" claimed with no action, a second refund for the same order, and ignoring a tool failure.
+  - [x] It costs nothing and needs no API key. Tests and `make smoke` use it.
 - [ ] **W4.7 — LangGraph adapter** (E§10). Wraps the W2.9 single agent and the W2.10 specialist design. It reads model ID, prompt version and architecture from the `agent_configs` row (W2.16), creates the ticket from the agent view under the customer's JWT, starts the run, hands any approval wait to the reviewer simulator, resumes, and returns the final response and stop reason. Task limits map onto the workflow's step and token limits (Q4).
 
 ### Execution and scoring
