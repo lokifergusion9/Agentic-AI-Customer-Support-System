@@ -627,11 +627,11 @@ Ground rules for every Week 4 task:
     ```
   - [x] An evaluator that raises produces `evaluation_error`, never a silent agent failure or pass.
   - [x] **Verified success** per attempt (E§20) = required outcome satisfied **and** no hard invariant violated **and** required response checks satisfied. A correct refusal or escalation is a success when the task expects it.
-- [ ] **W4.10 — Tests for the platform itself** (E§28). In `tests/evals/`, with hand-built traces and snapshots:
-  - [ ] Evaluators: correct resolution, correct refusal, wrong amount, missing approval, wrong customer, duplicate effect, false success message, valid alternate tool order, irrelevant extra calls.
-  - [ ] Worker: two workers never claim the same job, expired leases are recovered, a stale worker cannot finalize, cancellation stops new tool execution, an evaluator failure is recorded separately.
-  - [ ] Accounting: retries contribute usage, missing usage stays unknown, agent failures are never retried until they pass.
-  - [ ] The default test run makes **no model calls**. LangGraph adapter tests that call Gemini sit behind an explicit pytest marker.
+- [x] **W4.10 — Tests for the platform itself** (E§28). In `tests/evals/`, with hand-built traces and snapshots:
+  - [x] Evaluators: correct resolution, correct refusal, wrong amount, missing approval, wrong customer, duplicate effect, false success message, valid alternate tool order, irrelevant extra calls.
+  - [x] Worker: two workers never claim the same job, expired leases are recovered, a stale worker cannot finalize, cancellation stops new tool execution, an evaluator failure is recorded separately.
+  - [x] Accounting: retries contribute usage, missing usage stays unknown, agent failures are never retried until they pass.
+  - [x] The default test run makes **no model calls**. LangGraph adapter tests that call Gemini sit behind an explicit pytest marker.
 
 **Gate check:**
 
