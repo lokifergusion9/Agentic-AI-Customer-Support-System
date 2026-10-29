@@ -651,7 +651,7 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
 
 ## Week 5 — Comparison, reporting and presentation (Project_2.pdf + §16–§19)
 
-> **Progress (2026-10-29):** done and committed: W5.1, W5.3, W5.4, W5.5, W5.8. **Half done:** W5.2 (configs, plans, quota deferral built; the pilot has run, main/repetitions/model comparison still to run) and W5.6 (screens built and syntax-tested, not yet opened in a real browser). **Not started:** W5.7 demo scenarios, W5.9 README, W5.10 diagrams, W5.11 recording, W5.12 résumé entry. W5.11 and W5.12 need real measured results and the user's own recording, so they cannot be completed by code alone. Nothing from Week 4 or 5 has been pushed.
+> **Progress (2026-10-29):** done and committed: W5.1, W5.3, W5.4, W5.5, W5.6, W5.8. **Half done:** W5.2 (configs, plans, quota deferral built; the pilot has run, main/repetitions/model comparison still to run). **Not started:** W5.7 demo scenarios, W5.9 README, W5.10 diagrams, W5.11 recording, W5.12 résumé entry. W5.11 and W5.12 need real measured results and the user's own recording, so they cannot be completed by code alone. Nothing from Week 4 or 5 has been pushed.
 
 **Done when:** another developer can run the project and **reproduce your reported results** (§16), and you can name the exact tasks that improved or regressed between two configurations (E§27 phase 5).
 
@@ -726,7 +726,7 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
 
   - [x] `POST /eval/experiments` takes an `Idempotency-Key`: the same key and payload return the same experiment, and a conflicting reuse is rejected.
 - [x] **W5.5 — Reproducible report export** (E§1, E§22). JSON and CSV in `evals/reports/<experiment_id>/`: the full manifest (dataset version and hash, configs, model IDs as resolved by the provider, prompt hashes, tool-schema hash, code commit, lockfile hash, fault configuration, environment and evaluator versions), the scorecard, and one row per run.
-- [ ] **W5.6 — Demo and debugging interface** (§18, E§25). Jinja2 templates with light JavaScript (E§6):
+- [x] **W5.6 — Demo and debugging interface** (§18, E§25). Jinja2 templates with light JavaScript (E§6):
   - Agent demo (the original §18 screens): customer complaint panel, workflow timeline, evidence and policy panel, approval queue (W3.8), final outcome panel.
   - **Experiment list:** configuration, dataset, progress, success rate, coverage, tokens and cost, start time.
   - **Experiment detail:** category breakdown, failure reasons, latency distribution, token usage, hard violations, run list.
@@ -737,7 +737,7 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
 
   *Status (2026-10-29), **half done**:*
   - *Built:* `/demo` agent screen (`app/web/templates/demo.html`, five panels); evaluation screens in `evals/web/` served by the separate eval app (`uvicorn evals.api:app`): experiments list, experiment detail (scorecard, categories, failure reasons, latency, run list with the "refund failures" shortcut), run detail (agent-saw and hidden ground-truth panels kept apart, findings, state differences, trace with flagged events), comparison. Pages carry no data; they call the `/eval` API with a pasted operator token. `tests/evals/test_ui.py` covers serving, no data in HTML, escaping of hostile IDs, panel separation, and `node --check` on every script.*
-  - *Not done:* the pages have **not been opened in a real browser** against a seeded experiment (only syntax-checked and served through the test client), so runtime JavaScript errors are still possible. Plan: seed a scripted experiment in `support_eval`, run `evals.run_evals work --drain`, start `uvicorn evals.api:app --port 8100`, and click through with an operator token (`uv run python -m scripts.mint_token auth|ops --role operator`). The box stays open until that is done.
+  - *Browser check done (2026-10-29), in Edge (Playwright, headless) against `support_eval`:* every evaluation screen (experiments, experiment, run, comparison) and the agent `/demo` and `/review` screens load with no JavaScript or console errors. Clicked through the key interaction on a scripted-broken experiment: *refund failures* → a failed run → expected 249,900 paise but observed 0, `FALSE_REFUND_CLAIM` pointing at trace event #13, the highlighted trace line, and the ground-truth panel kept apart from what the agent saw. The comparison screen listed the two regressed tasks, and a missing run ID shows a 404 message. **Two bugs found and fixed:** (1) the experiment page was wider than the window (1,492 px at 1,280 px) because grid columns did not shrink below their table's width (`minmax(0, 1fr)`), and long reason-code chips did not wrap on a 390 px phone; (2) every page requested a `/favicon.ico` that does not exist. No horizontal overflow now at 1,280 or 390 px. Not covered: the demo screen's live flow with real customer and reviewer tokens (its data panels were loaded without a token).
 - [ ] **W5.7 — Demo scenarios** (§18, E§31):
   - [ ] **Demo A, successful approved refund:**
     1. The customer submits a complaint.

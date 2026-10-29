@@ -66,6 +66,19 @@ def test_the_comparison_screen_names_regressed_tasks(eval_client) -> None:
     assert "Regressed tasks" in html and "Improved tasks" in html
 
 
+@pytest.mark.parametrize("path", EVAL_PAGES)
+def test_a_page_does_not_request_a_favicon_that_does_not_exist(eval_client, path) -> None:
+    assert '<link rel="icon" href="data:,">' in eval_client.get(path).text
+
+
+def test_a_wide_table_scrolls_inside_its_panel_instead_of_widening_the_page(eval_client) -> None:
+    """Found by opening the screens in Edge (W5.6): grid columns do not shrink below their
+    content unless told to, and a long reason-code chip did not wrap on a phone."""
+    html = eval_client.get("/ui/experiments/exp_abc").text
+    assert "grid-template-columns: minmax(0, 1fr) minmax(0, 1fr)" in html
+    assert re.search(r"button\.chip \{[^}]*white-space: normal", html)
+
+
 def test_the_ui_routes_are_not_part_of_the_api_schema() -> None:
     assert all(path.startswith("/eval/") for path in api.app.openapi()["paths"])
 

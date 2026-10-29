@@ -15,9 +15,10 @@
   progress { width: 140px; height: 10px; }
   .chip { display: inline-block; font-size: 12px; padding: 1px 9px; border-radius: 99px;
     border: 1px solid var(--line); background: var(--bg); color: var(--text); margin: 0 4px 4px 0; }
-  button.chip { cursor: pointer; }
+  button.chip { cursor: pointer; max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
   button.chip:hover { border-color: var(--accent); }
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+  .grid2 > * { min-width: 0; }
   @media (max-width: 820px) { .grid2 { grid-template-columns: 1fr; } }
   .agent-saw { border-left: 4px solid var(--accent); }
   .hidden-truth { border: 2px dashed var(--warn); background: transparent; }
