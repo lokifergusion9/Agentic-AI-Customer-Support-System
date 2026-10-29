@@ -651,7 +651,7 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
 
 ## Week 5 — Comparison, reporting and presentation (Project_2.pdf + §16–§19)
 
-> **Progress (2026-10-29):** done and committed: W5.1, W5.3, W5.4, W5.5. **Half done:** W5.2 (configs, plans, quota deferral built; the pilot has run, main/repetitions/model comparison still to run) and W5.6 (screens built and syntax-tested, not yet opened in a real browser). **Not started:** W5.7 demo scenarios, W5.8 `Makefile` and `scripts/dev.py`, W5.9 README, W5.10 diagrams, W5.11 recording, W5.12 résumé entry. W5.11 and W5.12 need real measured results and the user's own recording, so they cannot be completed by code alone. Nothing from Week 4 or 5 has been pushed.
+> **Progress (2026-10-29):** done and committed: W5.1, W5.3, W5.4, W5.5, W5.8. **Half done:** W5.2 (configs, plans, quota deferral built; the pilot has run, main/repetitions/model comparison still to run) and W5.6 (screens built and syntax-tested, not yet opened in a real browser). **Not started:** W5.7 demo scenarios, W5.9 README, W5.10 diagrams, W5.11 recording, W5.12 résumé entry. W5.11 and W5.12 need real measured results and the user's own recording, so they cannot be completed by code alone. Nothing from Week 4 or 5 has been pushed.
 
 **Done when:** another developer can run the project and **reproduce your reported results** (§16), and you can name the exact tasks that improved or regressed between two configurations (E§27 phase 5).
 
@@ -757,7 +757,7 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
     4. No second refund is created.
   - [ ] **Demo D, convincing but incorrect answer** (E§31): the agent says a refund succeeded, but no refund exists. Show the final response, the environment snapshot, the failed outcome and response evaluators, and the trace event that explains it. Use a real failure from the experiments if one exists, otherwise the scripted false-success agent, labeled as scripted.
   - [ ] **Demo E, a better prompt with a tradeoff** (E§31): `flash_specialist_v1` vs `v2`. Show which tasks improved or regressed, and whether tool calls, tokens or latency increased.
-- [ ] **W5.8 — Developer commands** (E§30). A `Makefile` with `setup`, `migrate`, `seed`, `test`, `smoke`, `evaluate` and `report`, plus the same commands through `uv run python -m scripts.dev <command>` for Windows without `make`:
+- [x] **W5.8 — Developer commands** (E§30). A `Makefile` with `setup`, `migrate`, `seed`, `test`, `smoke`, `evaluate` and `report`, plus the same commands through `uv run python -m scripts.dev <command>` for Windows without `make`:
 
   | Command | Behavior |
   |---|---|
@@ -769,7 +769,7 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
   | `evaluate` | Launch a selected real-model experiment from a manifest |
   | `report` | Export a completed experiment (W5.5) |
 
-  *Status (2026-10-29), **not started as a task; parts exist**:* the building blocks are in `evals/run_evals.py` (`create`, `estimate`, `rerun`, `work`, `status`) and the report export (`evals/reports.py`). Still to write: the `Makefile`, `scripts/dev.py` with the seven commands (`setup` should also create the `support_eval` database, `seed` imports `support-v1` and the scripted configs, `smoke` runs the 5 pilot tasks with the scripted adapter), and a guard so `smoke`/`evaluate` never run against a non-eval database.
+  *Done (2026-10-29):* `Makefile` and `scripts/dev.py` (`setup`, `migrate`, `seed`, `test`, `smoke`, `evaluate`, `report`). `setup` also creates `support_eval`; `migrate` upgrades both databases; `seed` seeds the application database and loads the mocks (`--no-mocks` to skip), ingests policies into both databases, and registers `support-v1` and the six scripted configs in the eval database. `smoke`, `evaluate` and `report` always point their child processes at `<name>_eval` (never the application database, whatever `DATABASE_URL` says), and the worker keeps its own `*_eval`/`*_test` guard. Verified: `migrate`, `smoke` (5 of 5 completed / pass), `report`, and `_register` against the real databases; `seed` was not run end to end because it truncates the application database's business data. `tests/unit/test_dev_commands.py` covers the database choice.
 
 ### Documentation
 
