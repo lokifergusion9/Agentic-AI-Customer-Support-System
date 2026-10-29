@@ -250,6 +250,7 @@ def tool_metrics(scorable: list[RunData]) -> dict[str, Any]:
                 required += len(s["evidence"]["required"])
                 satisfied += len(s["evidence"]["required"]) - len(s["evidence"]["missing"])
     return {
+        "tool_calls_per_run": ratio(attempted, len(scorable)),
         "tool_schema_validity": ratio(attempted - invalid, attempted),
         "tool_call_precision": ratio(correct, attempted),
         "required_call_recall": ratio(satisfied, required),
@@ -365,7 +366,10 @@ def usage_metrics(
     unknown_cost = sum(c is None for c in costs)
     total_cost = sum(c for c in costs if c is not None)
     complete = bool(scorable) and unknown_cost == 0
+    calls = [((r.final or {}).get("usage") or {}).get("model_calls") for r in scorable]
     return {
+        "model_calls_per_run": ratio(sum(c for c in calls if c is not None), len(scorable)),
+        "tokens_per_run": ratio(total_tokens, len(scorable) - unknown_tokens),
         "runs_with_unknown_usage": unknown_tokens,
         "total_tokens": total_tokens,
         "total_tokens_complete": unknown_tokens == 0,
