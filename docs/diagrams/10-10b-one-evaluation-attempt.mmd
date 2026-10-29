@@ -1,0 +1,31 @@
+sequenceDiagram
+    autonumber
+    participant W as Worker
+    participant EV as eval schema
+    participant ENV as Environment manager
+    participant SUP as support schema + mocks
+    participant AD as Agent adapter
+    participant AG as Agent (API + tools)
+    participant SIM as Reviewer simulator
+    participant E as Evaluators
+
+    W->>SUP: claim eval_attempt job (SKIP LOCKED, lease token) — commit
+    W->>EV: INSERT attempt (attempt_number, environment_id)
+    W->>ENV: prepare(task)
+    ENV->>SUP: advisory lock · reset business tables + mocks
+    ENV->>SUP: load fixture · set clock to as_of · register faults
+    W->>AD: run(agent view only, limits)
+    AD->>AG: create ticket + start run (customer JWT)
+    AG->>SUP: tool calls, model calls, audit events
+    opt run waits for approval
+        AD->>SIM: approval pending
+        SIM->>AG: approve / reject / expire via approval service
+        AG->>SUP: resume, execute or follow rejection path
+    end
+    AG-->>AD: final response + stop reason
+    ENV->>EV: snapshot final state (DB rows + provider records) into artifacts
+    ENV->>EV: copy audit events into trace_events
+    W->>E: evaluate(evaluator view, snapshot, trace)
+    E->>EV: INSERT scores (one per dimension)
+    W->>EV: execution_status + evaluation_status (requires current lease token)
+    W->>SUP: finish job — release advisory lock

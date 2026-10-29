@@ -1,0 +1,28 @@
+sequenceDiagram
+    autonumber
+    participant WF as LangGraph run (thread_id)
+    participant DB as PostgreSQL
+    participant API as FastAPI
+    actor RV as Reviewer
+
+    WF->>DB: INSERT action_proposals (payload, payload_hash) — immutable
+    WF->>DB: INSERT approvals (proposal_id, expires_at, decision = pending)
+    WF->>DB: checkpoint saved (checkpoint tables)
+    WF-->>API: interrupt() — run status = awaiting_approval
+
+    RV->>API: GET /approvals
+    API->>API: authenticate reviewer + validate reviewer permissions
+    API-->>RV: customer, order, complaint summary, proposed action + amount,<br/>evidence, policy citations, expiry time
+    RV->>API: POST /approvals/{approval_id}/decision
+    API->>DB: save decision, reviewer_id (from auth), decided_at
+    API->>WF: Command(resume=...) on the same thread_id
+
+    Note over WF: The interrupted node restarts on resume.<br/>No financial side effects before interrupt().
+    WF->>DB: re-check expiry, payload_hash, eligibility, refundable balance
+    alt rejected
+        WF->>DB: record rejection, follow rejection path
+    else expired or material details changed
+        WF->>DB: invalidate old approval, request a new one
+    else approved and still valid
+        WF->>WF: continue to the separate execute node
+    end

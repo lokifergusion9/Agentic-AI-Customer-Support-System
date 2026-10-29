@@ -1,0 +1,86 @@
+flowchart TB
+    subgraph clients["Clients"]
+        CUST["Customer demo UI<br/>complaint panel · timeline · final outcome"]
+        REV["Reviewer UI<br/>approval queue · evidence · policy citations"]
+        EVH["Evaluation platform — evals/<br/>adapters · reviewer simulator · evaluators<br/>details in §10"]
+    end
+
+    subgraph api["FastAPI app — app/main.py · app/api · app/auth · app/schemas"]
+        AUTHN["Authentication & authorization<br/>identity derived from the request"]
+        ROUTES["Endpoints<br/>/tickets · /runs · /approvals · /health"]
+        VALID["Input & response validation"]
+        RUNNER["Run executor<br/>prototype: inline · robust: 202 Accepted + worker<br/>Postgres jobs queue, SKIP LOCKED (Q7)"]
+    end
+
+    subgraph wf["LangGraph workflow — app/workflows · app/agents"]
+        CLS["Classify complaint"]
+        INV["Investigation agent<br/>read-only fact tools"]
+        POLA["Policy agent<br/>search_policy only"]
+        RESA["Resolution agent<br/>structured proposal"]
+        RULES["Business-rule validation<br/>ordinary code"]
+        GATE["Approval gate<br/>interrupt()"]
+        EXEC["Execute → verify → update ticket<br/>ordinary code"]
+    end
+
+    subgraph tools["Typed tools & services — app/tools · app/services"]
+        RT["Read tools<br/>get_order · get_return_status · get_payment_status<br/>get_refund_status · search_policy · get_ticket"]
+        WT["Write tools<br/>create_refund_proposal · execute_approved_refund<br/>update_ticket"]
+        ELIG["Eligibility · amounts · refundable balance<br/>ownership checks · deterministic"]
+    end
+
+    subgraph rag["RAG — app/policies · scripts/ingest_policies.py"]
+        PDOCS["Synthetic policy documents<br/>id · version · effective dates"]
+        EMB["Section chunking + embeddings"]
+        RETR["Version-filtered retrieval<br/>citations · missing / conflicting evidence"]
+    end
+
+    subgraph pg["PostgreSQL — app/db · migrations/"]
+        APPDB[("Application tables<br/>customers · orders · tickets · runs<br/>proposals · approvals · refund_operations · audit_events")]
+        VEC[("policy_documents · policy_chunks<br/>pgvector optional")]
+        CKPT[("LangGraph checkpoint tables<br/>logically separate from app tables")]
+        EVALDB[("eval schema<br/>experiments · runs · attempts · scores<br/>ground truth: no agent access")]
+    end
+
+    subgraph mocks["Mock external services — mock_services/"]
+        PAY["Payment / refund API<br/>idempotency-key contract"]
+        SHIP["Shipping API"]
+        TIX["Ticketing API"]
+    end
+
+    LLM["LLM provider"]
+
+    CUST --> AUTHN
+    REV --> AUTHN
+    EVH --> AUTHN
+    AUTHN --> ROUTES --> VALID --> RUNNER --> CLS
+    CLS --> INV & POLA
+    INV & POLA --> RESA --> RULES --> GATE --> EXEC
+
+    CLS -.-> LLM
+    INV -.-> LLM
+    POLA -.-> LLM
+    RESA -.-> LLM
+
+    INV --> RT
+    POLA --> RETR
+    RESA --> WT
+    RULES --> ELIG
+    EXEC --> WT
+    EXEC --> ELIG
+
+    PDOCS --> EMB --> VEC
+    RETR --> VEC
+    RT --> APPDB
+    RT --> SHIP
+    RT --> PAY
+    WT --> APPDB
+    WT --> PAY
+    WT --> TIX
+    ELIG --> APPDB
+
+    RUNNER --> CKPT
+    GATE --> CKPT
+    ROUTES --> APPDB
+    EVH --> EVALDB
+    EVH -.->|"reset + load fixture per attempt"| APPDB
+    EVH -.->|"reset + faults"| mocks

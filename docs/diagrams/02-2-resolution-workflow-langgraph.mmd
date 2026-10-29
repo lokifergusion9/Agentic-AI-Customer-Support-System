@@ -1,0 +1,39 @@
+flowchart TD
+    A["Customer submits complaint<br/>POST /tickets → POST /tickets/{ticket_id}/runs"] --> B["Authenticate & validate request"]
+    B -->|"order belongs to another customer"| DENY["Deny access<br/>reveal no order details"]
+    B --> C["Classify complaint [LLM]<br/>order_status · refund_request · damaged_item"]
+    C -->|"unsupported / out of scope"| ESC
+    C --> D["Retrieve customer & order facts + relevant policies<br/>Investigation agent ∥ Policy agent [LLM]"]
+    D --> E{"Missing information?"}
+    E -->|"yes"| Q["Ask a targeted clarification question<br/>run waits for POST /runs/{run_id}/messages"]
+    Q --> D
+    E -->|"no"| F["Create proposed resolution [LLM]<br/>validated structured proposal"]
+    F --> G{"Validate against business rules<br/>ownership · eligibility · amount · policy"}
+
+    G -->|"answer only<br/>e.g. order status, ineligible refund"| UPD
+    G -->|"refund proposed"| H["Persist immutable proposal<br/>create pending approval"]
+    G -->|"no policy · conflicting evidence<br/>needs human judgement"| ESC["Escalate to human"]
+
+    H --> I["Pause workflow — interrupt()"]
+    I --> J{"Approve / reject / expire"}
+    J -->|"reject"| RJ["Record decision<br/>follow rejection path"]
+    J -->|"expire"| H
+    J -->|"approve"| K["Revalidate approved action<br/>eligibility · refundable balance · payload hash"]
+    K -->|"order / amount / material details changed"| H
+    K -->|"still valid"| L["Execute tool call<br/>execute_approved_refund"]
+    L --> M["Verify external result"]
+    M -->|"uncertain"| REC["Reconcile by idempotency key"]
+    REC --> M
+    M -->|"confirmed"| UPD["Update ticket and audit trail"]
+    RJ --> UPD
+    ESC --> UPD
+    UPD --> Z["Return accurate customer update<br/>claims no more than the API confirmed"]
+
+    classDef llm fill:#ede7f6,stroke:#5e35b1,color:#1a1a1a
+    classDef gate fill:#fff3e0,stroke:#ef6c00,color:#1a1a1a
+    classDef money fill:#e8f5e9,stroke:#2e7d32,color:#1a1a1a
+    classDef stop fill:#ffebee,stroke:#c62828,color:#1a1a1a
+    class C,D,F llm
+    class G,I,J,K gate
+    class L,M,REC money
+    class DENY,ESC stop

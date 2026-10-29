@@ -1,0 +1,14 @@
+flowchart TD
+    S["Application / worker starts"] --> R["Find unfinished workflow_runs"]
+    R --> L["Load LangGraph checkpoint by thread_id"]
+    L --> O{"Open refund_operation for this run?"}
+    O -->|"no"| RES["Resume workflow from checkpoint"]
+    O -->|"reserved · unknown · pending_reconciliation"| QP["Query payment provider by idempotency_key"]
+    QP -->|"provider confirms refund"| MS["Mark succeeded<br/>do NOT call refund again"]
+    QP -->|"provider has no record"| RT{"Retry allowed by contract?"}
+    RT -->|"yes"| RK["Retry with the same key + payload"]
+    RT -->|"no"| ESC["Escalate for manual review"]
+    MS --> TK["Retry only the pending ticket update"]
+    RK --> TK
+    TK --> RES
+    RES --> DONE["Verified outcome + audit event"]

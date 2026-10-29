@@ -1,0 +1,20 @@
+flowchart LR
+    subgraph LLMside["LLM — proposes"]
+        L1["Complaint classification"]
+        L2["Investigation: evidence summary"]
+        L3["Policy: citations + interpretation"]
+        L4["Resolution: structured proposal"]
+        L5["Customer-facing wording"]
+    end
+    subgraph Codeside["Ordinary code — decides & executes"]
+        C1["Authentication"]
+        C2["Access control / ownership"]
+        C3["Amount calculations"]
+        C4["Eligibility enforcement"]
+        C5["Approval validation"]
+        C6["API execution"]
+        C7["Retry limits"]
+        C8["State transitions"]
+    end
+    L4 -->|"schema-validated proposal"| C4
+    C6 -->|"verified result only"| L5

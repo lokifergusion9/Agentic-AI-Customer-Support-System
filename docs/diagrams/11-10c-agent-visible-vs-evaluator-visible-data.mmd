@@ -1,0 +1,15 @@
+flowchart LR
+    TASK["Task YAML"] --> AV & XV
+    subgraph agentside["Agent-visible"]
+        AV["agent_input<br/>user message · customer subject · optional order ID"]
+        TOOLS["Facts learned only through tools<br/>(ownership-checked)"]
+    end
+    subgraph evalside["Evaluator-visible only"]
+        XV["environment_fixture · faults<br/>reviewer_behavior<br/>expected outcome · invariants<br/>required behavior · response checks"]
+    end
+    AV --> AGENT["Agent"]
+    TOOLS --> AGENT
+    XV --> FIX["Fixture loaded into DB + mocks"]
+    FIX --> TOOLS
+    XV --> EVL["Evaluators"]
+    AGENT -->|"trace + final state"| EVL

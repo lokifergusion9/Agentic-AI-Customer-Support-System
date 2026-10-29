@@ -1,0 +1,105 @@
+erDiagram
+    customers ||--o{ orders : places
+    customers ||--o{ tickets : opens
+    orders ||--|{ order_items : contains
+    orders ||--o{ returns : has
+    orders |o--o{ tickets : "is about"
+    orders ||--o{ refund_operations : "refunded by"
+    tickets ||--o{ workflow_runs : "resolved by"
+    workflow_runs ||--o{ action_proposals : produces
+    workflow_runs ||--o{ audit_events : logs
+    action_proposals ||--o{ approvals : "decided by"
+    action_proposals ||--o{ refund_operations : "executed as"
+    policy_documents ||--|{ policy_chunks : "split into"
+
+    customers {
+        uuid id PK
+        text external_auth_subject UK
+        text name
+        text email
+    }
+    orders {
+        text id PK
+        uuid customer_id FK
+        text status
+        text currency
+        bigint paid_amount_minor
+        timestamptz delivered_at
+    }
+    order_items {
+        uuid id PK
+        text order_id FK
+        text product_id
+        int quantity
+        bigint paid_amount_minor
+    }
+    returns {
+        text id PK
+        text order_id FK
+        text status
+        timestamptz received_at
+        text inspection_status
+    }
+    tickets {
+        uuid id PK
+        uuid customer_id FK
+        text order_id FK
+        text category
+        text status
+        text summary
+    }
+    workflow_runs {
+        uuid id PK
+        uuid ticket_id FK
+        text thread_id "LangGraph thread"
+        text status
+        timestamptz started_at
+        timestamptz completed_at
+    }
+    policy_documents {
+        text id PK
+        text version
+        date effective_from
+        date effective_to
+        text source_uri
+    }
+    policy_chunks {
+        uuid id PK
+        text document_id FK
+        text content
+        vector embedding "pgvector optional"
+        jsonb metadata
+    }
+    action_proposals {
+        uuid id PK
+        uuid run_id FK
+        text action_type
+        jsonb payload
+        text payload_hash
+        text status
+    }
+    approvals {
+        uuid id PK
+        uuid proposal_id FK
+        text reviewer_id
+        text decision
+        timestamptz expires_at
+        timestamptz decided_at
+    }
+    refund_operations {
+        uuid id PK
+        text order_id FK
+        uuid proposal_id FK
+        bigint amount_minor
+        text idempotency_key UK
+        text provider_reference
+        text status
+    }
+    audit_events {
+        uuid id PK
+        uuid run_id FK
+        text actor
+        text event_type
+        jsonb redacted_payload
+        timestamptz created_at
+    }

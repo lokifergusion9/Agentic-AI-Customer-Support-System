@@ -1,0 +1,23 @@
+flowchart LR
+    subgraph input["Input & access"]
+        F1["Missing order information"] --> B1["Ask targeted clarification question"]
+        F2["Order belongs to another customer"] --> B2["Deny access without revealing details"]
+    end
+    subgraph policy["Policy"]
+        F3["No applicable policy found"] --> B3["Escalate — never invent eligibility"]
+        F4["Conflicting policy evidence"] --> B4["Flag the conflict for review"]
+    end
+    subgraph model["Model & tools"]
+        F5["Temporary read API failure"] --> B5["Retry with bounded backoff"]
+        F6["Invalid model output"] --> B6["Validate, limited repair, then stop or escalate"]
+        F12["Excessive workflow loops"] --> B12["Stop at a configured step or cost limit"]
+    end
+    subgraph approval["Approval"]
+        F7["Approval rejected"] --> B7["Record decision, follow rejection path"]
+        F8["Approval expired"] --> B8["Require a new valid approval"]
+    end
+    subgraph money["Execution"]
+        F9["Refund outcome uncertain"] --> B9["Reconcile before retrying or claiming success"]
+        F10["Refund succeeds, ticket update fails"] --> B10["Retry only the ticket update"]
+        F11["Worker crashes"] --> B11["Resume from persisted state, reconcile side effects"]
+    end

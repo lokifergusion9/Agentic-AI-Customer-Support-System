@@ -1,0 +1,49 @@
+flowchart TB
+    subgraph clients["Clients"]
+        CLI["CLI — evals/run_evals.py · Makefile"]
+        DASH["Dashboard — experiments · run detail · comparison"]
+    end
+
+    subgraph evapi["FastAPI — /eval/* (operator role, Q12)"]
+        EAPI["Datasets · agent configs · experiments<br/>comparisons · export"]
+    end
+
+    subgraph worker["Worker process (shared with W3.13)"]
+        CLAIM["Claim eval_attempt job<br/>SKIP LOCKED + lease token"]
+        ENV["Environment manager — evals/environment.py<br/>advisory lock · reset · load fixture · snapshot"]
+        ADP["Agent adapter<br/>scripted · LangGraph (single / specialist)"]
+        SIM["Reviewer simulator<br/>approve / reject / expire"]
+        EVALS["Evaluators<br/>outcome · policy · trajectory · response"]
+    end
+
+    subgraph agent["System under test (§1–§9)"]
+        AAPI["Agent API + typed tools<br/>ownership · approval · idempotency enforced"]
+    end
+
+    subgraph pg["PostgreSQL"]
+        SUP[("support schema<br/>business tables · audit_events · jobs")]
+        EV[("eval schema<br/>tasks · configs · experiments · runs<br/>attempts · trace_events · artifacts · scores")]
+    end
+
+    MOCKS["Mock payment · shipping · ticketing<br/>faults keyed by logical operation"]
+    LLM["Gemini Flash / Flash-Lite (Q9)"]
+
+    CLI --> EAPI
+    DASH --> EAPI
+    EAPI --> EV
+    EAPI -->|"one transaction: experiment + runs + jobs"| SUP
+    CLAIM --> SUP
+    CLAIM --> ENV
+    ENV -->|"reset + fixture"| SUP
+    ENV -->|"reset + fixture + faults"| MOCKS
+    ENV --> ADP
+    ADP --> AAPI
+    AAPI --> SUP
+    AAPI --> MOCKS
+    AAPI -.-> LLM
+    SIM -->|"decision via the real approval service"| AAPI
+    ENV -->|"snapshot + copy trace"| EV
+    EVALS --> EV
+
+    classDef hidden fill:#fff3e0,stroke:#ef6c00,color:#1a1a1a
+    class EV,EVALS,SIM hidden

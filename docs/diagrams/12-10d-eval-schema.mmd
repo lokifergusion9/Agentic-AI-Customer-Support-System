@@ -1,0 +1,83 @@
+erDiagram
+    datasets ||--|{ dataset_versions : "versioned as"
+    dataset_versions ||--|{ task_versions : contains
+    prompt_versions ||--o{ agent_configs : "used by"
+    dataset_versions ||--o{ experiments : "evaluated in"
+    experiments ||--|{ runs : plans
+    agent_configs ||--o{ runs : "runs as"
+    task_versions ||--o{ runs : "runs on"
+    runs ||--|{ attempts : "executed as"
+    attempts ||--o{ trace_events : records
+    attempts ||--o{ artifacts : snapshots
+    attempts ||--o{ scores : "scored by"
+    price_versions ||--o{ agent_configs : "prices"
+
+    dataset_versions {
+        text id PK
+        text dataset_id FK
+        jsonb manifest "splits"
+        text content_hash
+    }
+    task_versions {
+        text id PK
+        text task_id
+        int version
+        text category
+        jsonb agent_view
+        jsonb evaluator_view
+        text content_hash
+    }
+    agent_configs {
+        text id PK "immutable"
+        text adapter
+        text provider
+        text model_id
+        text prompt_version_id FK
+        text architecture "single | specialist"
+        jsonb limits
+        text tool_schema_hash
+    }
+    experiments {
+        text id PK
+        text dataset_version_id FK
+        text split
+        jsonb manifest "immutable"
+        text status
+        text idempotency_key UK
+    }
+    runs {
+        text id PK
+        text experiment_id FK
+        text agent_config_id FK
+        text task_version_id FK
+        int repetition
+        text execution_status
+        text evaluation_status
+    }
+    attempts {
+        text id PK
+        text run_id FK
+        int attempt_number
+        text environment_id
+        text workflow_run_id
+        text stop_reason
+        text final_response
+    }
+    trace_events {
+        text id PK
+        text attempt_id FK
+        int sequence_number
+        text event_type
+        jsonb redacted_payload
+    }
+    scores {
+        text id PK
+        text attempt_id FK
+        text evaluator_name
+        text evaluator_version
+        text dimension
+        bool applicable
+        text status
+        text reason_code
+        jsonb evidence
+    }

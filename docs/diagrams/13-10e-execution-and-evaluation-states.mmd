@@ -1,0 +1,11 @@
+stateDiagram-v2
+    direction LR
+    [*] --> queued
+    queued --> running : worker claims
+    running --> completed
+    running --> timed_out
+    running --> budget_exceeded
+    running --> infrastructure_error
+    queued --> cancelled
+    running --> cancelled
+    infrastructure_error --> queued : bounded retry, new attempt + fresh environment
