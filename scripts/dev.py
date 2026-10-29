@@ -7,6 +7,7 @@
     uv run python -m scripts.dev smoke      # the 5 pilot tasks with the scripted adapter
     uv run python -m scripts.dev evaluate --plan pilot   # a real-model experiment from a manifest
     uv run python -m scripts.dev report <experiment_id>  # export a completed experiment
+    uv run python -m scripts.dev demo a|b|c|d|e          # the demo scenarios (scripts/demo.py)
 
 Two databases are used. `DATABASE_URL` in .env is the application database (`support`). Every
 experiment runs in its own database named `<name>_eval` (`support_eval`), because each attempt
@@ -190,6 +191,11 @@ def evaluate(args: argparse.Namespace) -> None:
         print("runs waiting for a quota resume on the next `evaluate`/`work`; check `status`")
 
 
+def demo(args: argparse.Namespace) -> None:
+    code = python("-m", "scripts.demo", *args.demo_args, database=eval_url(), check=False)
+    raise SystemExit(code)
+
+
 def report(args: argparse.Namespace) -> None:
     command = ["-m", "evals.reports", "export", args.experiment_id]
     if args.out:
@@ -224,6 +230,9 @@ def build_parser() -> argparse.ArgumentParser:
     evaluating.add_argument("--allow-test-split", action="store_true")
     evaluating.add_argument("--create-only", action="store_true", help="queue it, do not run")
     evaluating.set_defaults(func=evaluate)
+    demonstrating = commands.add_parser("demo", help="demo scenarios A-E (see scripts/demo.py)")
+    demonstrating.add_argument("demo_args", nargs=argparse.REMAINDER, help="a|b|c|d|e [options]")
+    demonstrating.set_defaults(func=demo)
     reporting = commands.add_parser("report", help="export a completed experiment")
     reporting.add_argument("experiment_id")
     reporting.add_argument("--out", default=None)

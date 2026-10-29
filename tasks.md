@@ -651,7 +651,7 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
 
 ## Week 5 — Comparison, reporting and presentation (Project_2.pdf + §16–§19)
 
-> **Progress (2026-10-29):** done and committed: W5.1, W5.3, W5.4, W5.5, W5.6, W5.8. **Half done:** W5.2 (configs, plans, quota deferral built; the pilot has run, main/repetitions/model comparison still to run). **Not started:** W5.7 demo scenarios, W5.9 README, W5.10 diagrams, W5.11 recording, W5.12 résumé entry. W5.11 and W5.12 need real measured results and the user's own recording, so they cannot be completed by code alone. Nothing from Week 4 or 5 has been pushed.
+> **Progress (2026-10-29):** done and committed: W5.1, W5.3, W5.4, W5.5, W5.6, W5.8. **Half done:** W5.2 (configs, plans, quota deferral built; the pilot has run, main/repetitions/model comparison still to run). **Half done:** W5.7 (Demos A to D built and run; E waits for real experiments). **Not started:** W5.9 README, W5.10 diagrams, W5.11 recording, W5.12 résumé entry. W5.11 and W5.12 need real measured results and the user's own recording, so they cannot be completed by code alone. Nothing from Week 4 or 5 has been pushed.
 
 **Done when:** another developer can run the project and **reproduce your reported results** (§16), and you can name the exact tasks that improved or regressed between two configurations (E§27 phase 5).
 
@@ -739,24 +739,26 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
   - *Built:* `/demo` agent screen (`app/web/templates/demo.html`, five panels); evaluation screens in `evals/web/` served by the separate eval app (`uvicorn evals.api:app`): experiments list, experiment detail (scorecard, categories, failure reasons, latency, run list with the "refund failures" shortcut), run detail (agent-saw and hidden ground-truth panels kept apart, findings, state differences, trace with flagged events), comparison. Pages carry no data; they call the `/eval` API with a pasted operator token. `tests/evals/test_ui.py` covers serving, no data in HTML, escaping of hostile IDs, panel separation, and `node --check` on every script.*
   - *Browser check done (2026-10-29), in Edge (Playwright, headless) against `support_eval`:* every evaluation screen (experiments, experiment, run, comparison) and the agent `/demo` and `/review` screens load with no JavaScript or console errors. Clicked through the key interaction on a scripted-broken experiment: *refund failures* → a failed run → expected 249,900 paise but observed 0, `FALSE_REFUND_CLAIM` pointing at trace event #13, the highlighted trace line, and the ground-truth panel kept apart from what the agent saw. The comparison screen listed the two regressed tasks, and a missing run ID shows a 404 message. **Two bugs found and fixed:** (1) the experiment page was wider than the window (1,492 px at 1,280 px) because grid columns did not shrink below their table's width (`minmax(0, 1fr)`), and long reason-code chips did not wrap on a 390 px phone; (2) every page requested a `/favicon.ico` that does not exist. No horizontal overflow now at 1,280 or 390 px. Not covered: the demo screen's live flow with real customer and reviewer tokens (its data panels were loaded without a token).
 - [ ] **W5.7 — Demo scenarios** (§18, E§31):
-  - [ ] **Demo A, successful approved refund:**
+  - [x] **Demo A, successful approved refund:**
     1. The customer submits a complaint.
     2. The agent retrieves records and policy.
     3. The reviewer sees the evidence and approves.
     4. The mock provider records the refund.
     5. The ticket receives the verified status.
-  - [ ] **Demo B, correctly blocked request:**
+  - [x] **Demo B, correctly blocked request:**
     1. The customer requests an ineligible refund.
     2. The system explains the applicable policy.
     3. No payment action occurs.
     4. The case is escalated if appropriate.
-  - [ ] **Demo C, failure recovery:**
+  - [x] **Demo C, failure recovery:**
     1. The provider accepts a refund but the response times out.
     2. The application restarts.
     3. The workflow reconciles the existing operation.
     4. No second refund is created.
-  - [ ] **Demo D, convincing but incorrect answer** (E§31): the agent says a refund succeeded, but no refund exists. Show the final response, the environment snapshot, the failed outcome and response evaluators, and the trace event that explains it. Use a real failure from the experiments if one exists, otherwise the scripted false-success agent, labeled as scripted.
+  - [x] **Demo D, convincing but incorrect answer** (E§31): the agent says a refund succeeded, but no refund exists. Show the final response, the environment snapshot, the failed outcome and response evaluators, and the trace event that explains it. Use a real failure from the experiments if one exists, otherwise the scripted false-success agent, labeled as scripted.
   - [ ] **Demo E, a better prompt with a tradeoff** (E§31): `flash_specialist_v1` vs `v2`. Show which tasks improved or regressed, and whether tool calls, tokens or latency increased.
+  *Built (2026-10-29):* `uv run python -m scripts.dev demo a|b|c|d|e` (`scripts/demo.py`, described in `docs/demo-scenarios.md`). A to D run end to end and check the system state (provider refunds, proposals, ticket status, evaluator verdict); A to C use the scripted agent by default (no API key; it does not retrieve policy, which the output says) and take `--config lite_specialist_v1` for the real model; D is labeled scripted. C's restart is simulated (the operation is reset to `unknown` and reconciled again), with the real kill covered by a failure-scenario test. **E is not run:** it compares two real-model experiments and waits for W5.2; the command prints how to run them and exits with code 2 instead of faking it, and its comparison code was checked on the scripted experiments. The W5.7 box stays open until E has run on real results.
+  *Two platform bugs found by running Demo C:* the eval mock clients timed out after 10 s while a timeout fault holds the response only 6 s, so the fault never looked like a timeout and `fault_refund_accept_timeout_001` passed without any reconciliation (now the application's own `provider_timeout_seconds`); and the scripted agent then escalated on an unconfirmed refund instead of running the workflow's verify step (`confirm_refund`), which it now does. Earlier scripted results on that one task were therefore too easy; the real-model pilot did not include it.
 - [x] **W5.8 — Developer commands** (E§30). A `Makefile` with `setup`, `migrate`, `seed`, `test`, `smoke`, `evaluate` and `report`, plus the same commands through `uv run python -m scripts.dev <command>` for Windows without `make`:
 
   | Command | Behavior |

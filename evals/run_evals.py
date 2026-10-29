@@ -46,7 +46,13 @@ def mock_clients() -> MockClients:
     settings = get_settings()
 
     def client(url: str, key: str) -> httpx.Client:
-        return httpx.Client(base_url=url, headers={"X-API-Key": key}, timeout=10)
+        # The application's own provider timeout: a timeout fault holds a response one second
+        # longer than it, so a longer client timeout would never see the fault.
+        return httpx.Client(
+            base_url=url,
+            headers={"X-API-Key": key},
+            timeout=settings.provider_timeout_seconds,
+        )
 
     return MockClients(
         payments=client(settings.mock_payments_url, settings.mock_payments_api_key),

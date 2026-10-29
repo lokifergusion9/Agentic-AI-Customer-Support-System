@@ -21,6 +21,8 @@ from typing import Any
 
 from app.auth.customer import AuthenticatedCustomer
 from app.services.audit import record_event
+from app.services.errors import ServiceFailure
+from app.services.refunds import FINAL, confirm_refund
 from app.services.runs import set_run_output, set_run_status, start_run
 from app.tools.base import ToolContext
 from app.tools.gateway import ToolGateway
@@ -243,6 +245,15 @@ class ScriptedAgent:
         if status not in ("succeeded", "failed") and executed["success"]:
             checked = self.call("get_refund_status", operation_id=executed["data"]["operation_id"])
             status = checked["data"]["local_status"] if checked["success"] else None
+        if status not in FINAL and executed["success"]:
+            # The workflow's verify step is code, not the agent: it asks the provider by
+            # idempotency key before anything is claimed (graph.py verify_refund_node).
+            try:
+                status = confirm_refund(
+                    self.context.db, self.context.payments, proposal["proposal_id"]
+                ).status
+            except ServiceFailure:
+                status = None
         if status != "succeeded":
             return "escalate", ESCALATED
 
