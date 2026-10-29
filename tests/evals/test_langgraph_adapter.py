@@ -57,9 +57,12 @@ def test_expiring_approvals_end_in_escalation(policies, adapter, run_attempt) ->
     assert [a["outcome"] for a in done.result.metadata["simulated_approvals"]] == ["expired"] * 3
 
 
-def test_the_task_turn_limit_caps_the_workflow_steps(policies, adapter, run_attempt) -> None:
+def test_the_task_limits_cap_the_workflow_steps(policies, adapter, run_attempt) -> None:
+    # Model calls and tool calls both take a step: 12 turns + 20 tool calls, capped at 25.
     done = run_attempt("refund_eligible_001", adapter, agent_config=ROW)
-    assert done.result.metadata["max_steps"] == 12  # the task's max_model_turns, below 25
+    assert done.result.metadata["max_steps"] == 25
+    lookup = run_attempt("lookup_delivered_001", adapter, agent_config=ROW)
+    assert lookup.result.metadata["max_steps"] == 20  # 8 turns + 12 tool calls
 
 
 def test_a_config_row_round_trips_to_the_workflow_config() -> None:

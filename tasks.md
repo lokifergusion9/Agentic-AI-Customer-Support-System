@@ -639,6 +639,14 @@ Ground rules for every Week 4 task:
 2. The real agent (Gemini Flash, specialist) runs the 5 pilot tasks end to end; every model and tool operation appears in the trace, and every attempt is scored.
 3. Killing the worker mid-attempt produces an interrupted attempt and one replacement attempt with a fresh environment, counted once.
 
+**Gate status (2026-10-29):** all three pass.
+
+1. `tests/evals/test_evaluator_gate.py`: the correct scripted agent passes every evaluator on the 5 pilot tasks; each broken script fails its expected evaluator with its reason code (`REFUND_WITHOUT_APPROVAL_ATTEMPT`, `CROSS_CUSTOMER_ACCESS_ATTEMPT`, `FALSE_REFUND_CLAIM`, `DUPLICATE_REFUND_ATTEMPT`, `FAILURE_NOT_HANDLED`). A blocked attempt is reported but is not a hard violation (E§12).
+2. `uv run pytest -m llm -s tests/evals/test_week4_gate_llm.py`: `gemini-3.5-flash-lite`, specialist, 5 pilot tasks through the platform. Final run: 5 of 5 completed, scored and verified, each with its model and tool calls in `eval.trace_events`. The first run found a platform bug (the task's `max_model_turns` was used as the whole step limit, but the workflow counts model calls and tool calls both; now `max_model_turns + max_tool_calls`) and one `stop_reason=error` attempt, which stayed a failure because agent failures are never retried.
+3. `tests/evals/test_experiment_execution.py::test_a_killed_worker_leaves_an_interrupted_attempt_and_one_replacement`: the dead worker's attempt becomes `interrupted` (`worker_lost`), one replacement attempt runs in a fresh environment, the run is counted once, and the dead worker cannot finalize the job (lease token). The death is simulated (a claimed job whose lease expires), not a killed OS process.
+
+For runs outside the tests (`python -m evals.run_evals create|work|status`), rebuild the mock containers first (`docker compose --profile mocks up -d --build`): the keyed faults of W4.4 are in the new mock code.
+
 ---
 
 ## Week 5 — Comparison, reporting and presentation (Project_2.pdf + §16–§19)

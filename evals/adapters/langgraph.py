@@ -2,7 +2,7 @@
 
 Wraps the W2.9 single agent and the W2.10 specialist design. The model, prompt version,
 architecture and limits come from the `agent_configs` row in the context; the task's
-`max_model_turns` caps the workflow's step limit (Q4). The ticket is opened from the agent
+`max_model_turns` + `max_tool_calls` cap the workflow's step limit (Q4). The ticket is opened from the agent
 view as the customer, the run is started, every approval wait is handed to the reviewer
 simulator and the run resumed on its thread, until it stops waiting.
 
@@ -48,7 +48,10 @@ class LangGraphAdapter:
             raise AttemptCancelled
         db = context.db
         config = agent_config(context.agent_config)
-        config = replace(config, max_steps=min(config.max_steps, context.limits.max_model_turns))
+        # The workflow's step budget counts every model call and every tool call (W2.16), so the
+        # task's two limits together are its step limit.
+        task_steps = context.limits.max_model_turns + context.limits.max_tool_calls
+        config = replace(config, max_steps=min(config.max_steps, task_steps))
         services = WorkflowServices(
             provider=self.provider_factory(config),
             config=config,
@@ -88,6 +91,7 @@ class LangGraphAdapter:
                 "ticket_id": ticket_id,
                 "run_status": run.status,
                 "route": output.get("route"),
+                "error": output.get("error"),
                 "config_id": context.agent_config["id"],
                 "model_id": config.model_id,
                 "max_steps": config.max_steps,

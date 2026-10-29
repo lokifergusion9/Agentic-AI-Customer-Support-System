@@ -277,7 +277,8 @@ def finalize(
             f"UPDATE {EVAL_SCHEMA}.attempts SET status = 'finished', finished_at = now(), "
             "execution_status = :execution, workflow_run_id = :wr, stop_reason = :stop, "
             "final_response = :response, active_ms = :active, approval_wait_ms = :wait, "
-            "usage = CAST(:usage AS jsonb), verified_success = :verified "
+            "usage = CAST(:usage AS jsonb), verified_success = :verified, "
+            "error = CAST(:error AS jsonb) "
             "WHERE id = :id AND status = 'running' RETURNING id"
         ),
         {
@@ -290,6 +291,10 @@ def finalize(
             "wait": round(approval_wait_ms),
             "usage": json.dumps(usage),
             "verified": verdict.verified_success,
+            # An agent run that ended in an unexpected error keeps the error class (not retried).
+            "error": json.dumps({"error": result.metadata["error"]})
+            if result.metadata.get("error")
+            else None,
         },
     ).scalar_one_or_none()
     if updated is None:
