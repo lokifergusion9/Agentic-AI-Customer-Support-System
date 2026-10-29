@@ -8,7 +8,7 @@ from collections import Counter
 
 from evals.evaluators.base import AttemptRecord, Score, Scorer
 
-NAME, VERSION = "trajectory", "1.0.0"
+NAME, VERSION = "trajectory", "1.1.0"  # 1.1.0: required_steps always reports required+missing
 score = Scorer(NAME, VERSION)
 # Calls that are repeated by design: reconciliation re-executes and re-checks a refund, and
 # the workflow updates the ticket at each pause.
@@ -36,13 +36,12 @@ def required_steps(record: AttemptRecord) -> Score:
     matched = [step for step in required if step in observed]
     missing = [step for step in required if step not in observed]
     recall = len(matched) / len(required)
+    evidence = {"required": required, "missing": missing, "recall": recall}
     if not missing:
-        return score.passed("required_steps", recall=1.0, required=required)
+        return score.passed("required_steps", **evidence)
     if matched:
-        return score.partial(
-            "required_steps", recall, "MISSING_REQUIRED_STEP", missing=missing, recall=recall
-        )
-    return score.failed("required_steps", "MISSING_REQUIRED_STEP", missing=missing, recall=0.0)
+        return score.partial("required_steps", recall, "MISSING_REQUIRED_STEP", **evidence)
+    return score.failed("required_steps", "MISSING_REQUIRED_STEP", **evidence)
 
 
 def preconditions(record: AttemptRecord) -> Score:

@@ -158,43 +158,7 @@ class AttemptRecord:
 
     @cached_property
     def tool_calls(self) -> list[ToolCall]:
-        """Each tool_requested paired with its tool_finished or tool_rejected, in order."""
-        open_calls: dict[tuple[str, str], list[dict[str, Any]]] = {}
-        results: dict[int, dict[str, Any]] = {}
-        for event in self.trace:
-            payload = event["payload"]
-            if "tool" not in payload:
-                continue
-            key = (payload["tool"], payload.get("call_id", ""))
-            if event["event_type"] == "tool_requested":
-                open_calls.setdefault(key, []).append(event)
-            elif event["event_type"] in ("tool_finished", "tool_rejected") and open_calls.get(key):
-                results[open_calls[key].pop(0)["sequence_number"]] = event
-        calls = []
-        for event in self.events("tool_requested"):
-            payload = event["payload"]
-            result = results.get(event["sequence_number"])
-            if result is None:
-                outcome, payload_result = "missing", {}
-            elif result["event_type"] == "tool_rejected":
-                outcome, payload_result = "rejected", result["payload"]
-            else:
-                payload_result = result["payload"]
-                outcome = "ok" if payload_result.get("status") == "ok" else "error"
-            args = payload.get("args")
-            calls.append(
-                ToolCall(
-                    sequence_number=event["sequence_number"],
-                    actor=event["actor"],
-                    tool=payload["tool"],
-                    call_id=payload.get("call_id", ""),
-                    args=args if isinstance(args, dict) else {},
-                    outcome=outcome,
-                    error_code=payload_result.get("error_code"),
-                    result=payload_result,
-                )
-            )
-        return calls
+        return pair_tool_calls(self.trace)
 
     @cached_property
     def approvals_granted(self) -> list[dict[str, Any]]:
@@ -215,3 +179,43 @@ class AttemptRecord:
             )
             steps.append((event["sequence_number"], name))
         return sorted(steps)
+
+
+def pair_tool_calls(trace: list[dict[str, Any]]) -> list[ToolCall]:
+    """Each tool_requested paired with its tool_finished or tool_rejected, in order."""
+    open_calls: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    results: dict[int, dict[str, Any]] = {}
+    for event in trace:
+        payload = event["payload"]
+        if "tool" not in payload:
+            continue
+        key = (payload["tool"], payload.get("call_id", ""))
+        if event["event_type"] == "tool_requested":
+            open_calls.setdefault(key, []).append(event)
+        elif event["event_type"] in ("tool_finished", "tool_rejected") and open_calls.get(key):
+            results[open_calls[key].pop(0)["sequence_number"]] = event
+    calls = []
+    for event in (e for e in trace if e["event_type"] == "tool_requested"):
+        payload = event["payload"]
+        result = results.get(event["sequence_number"])
+        if result is None:
+            outcome, payload_result = "missing", {}
+        elif result["event_type"] == "tool_rejected":
+            outcome, payload_result = "rejected", result["payload"]
+        else:
+            payload_result = result["payload"]
+            outcome = "ok" if payload_result.get("status") == "ok" else "error"
+        args = payload.get("args")
+        calls.append(
+            ToolCall(
+                sequence_number=event["sequence_number"],
+                actor=event["actor"],
+                tool=payload["tool"],
+                call_id=payload.get("call_id", ""),
+                args=args if isinstance(args, dict) else {},
+                outcome=outcome,
+                error_code=payload_result.get("error_code"),
+                result=payload_result,
+            )
+        )
+    return calls

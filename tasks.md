@@ -655,7 +655,7 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
 
 ### Metrics and comparison
 
-- [ ] **W5.1 — Metrics with explicit denominators** (E§20, §15). Computed from `eval.scores` and `eval.trace_events`, per configuration and per category:
+- [x] **W5.1 — Metrics with explicit denominators** (E§20, §15). Computed from `eval.scores` and `eval.trace_events`, per configuration and per category:
 
   | Metric | Definition |
   |---|---|
@@ -672,10 +672,10 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
   | Latency | Queue time, active execution time and reviewer-wait time, reported separately (§15) |
   | Tokens and cost per successful run | Candidate tokens ÷ successful runs; estimated cost at paid rates from `price_versions`, labeled **estimate** (actual free-tier cost is $0, Q4) |
 
-  - [ ] Report **human-assisted** resolution (needed a simulated approval) separately from **fully automated** resolution (§15).
-  - [ ] Repeated trials (E§22): mean success across repetitions, per-task variability, and "**passed all repetitions**". Uncertainty by bootstrapping at the **task** level, so repetitions of one task stay together.
-  - [ ] Use a **scorecard** (verified success, hard violations, tool behavior, latency, cost, coverage), not one total score. A configuration with high success but low coverage must not look equivalent to one that completed the whole experiment.
-  - [ ] Missing usage is **unknown cost**, never free.
+  - [x] Report **human-assisted** resolution (needed a simulated approval) separately from **fully automated** resolution (§15).
+  - [x] Repeated trials (E§22): mean success across repetitions, per-task variability, and "**passed all repetitions**". Uncertainty by bootstrapping at the **task** level, so repetitions of one task stay together.
+  - [x] Use a **scorecard** (verified success, hard violations, tool behavior, latency, cost, coverage), not one total score. A configuration with high success but low coverage must not look equivalent to one that completed the whole experiment.
+  - [x] Missing usage is **unknown cost**, never free.
 - [ ] **W5.2 — Configurations and the experiment plan** (E§3, E§22, Q9, Q10; revised 2026-10-27 for the measured free-tier quotas). Register four immutable `agent_configs`. Flash-Lite is the main model because Flash allows only 20 requests a day:
 
   | Config | Model ID | Architecture | Prompt |

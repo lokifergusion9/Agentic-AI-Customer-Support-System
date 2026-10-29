@@ -430,6 +430,6 @@ def test_evaluators_have_versions() -> None:
     assert {(n, v) for n, v, _ in suite.EVALUATORS} == {
         ("outcome", "1.0.0"),
         ("policy", "1.0.0"),
-        ("trajectory", "1.0.0"),
+        ("trajectory", "1.1.0"),
         ("response", "1.0.0"),
     }

@@ -250,7 +250,7 @@ def usage(trace: list[dict[str, Any]]) -> dict[str, Any]:
     unknown (null), never 0 (W2.16)."""
     calls = [e["payload"] for e in trace if e["event_type"] == "model_call"]
     totals: dict[str, Any] = {"model_calls": len(calls)}
-    for name in ("input_tokens", "output_tokens", "cached_input_tokens"):
+    for name in ("input_tokens", "output_tokens", "cached_input_tokens", "reasoning_tokens"):
         values = [c.get(name) for c in calls if c.get("outcome") == "ok"]
         totals[name] = None if any(v is None for v in values) else sum(values)
     totals["retried_calls"] = sum(1 for c in calls if c.get("outcome") != "ok")
