@@ -5,7 +5,8 @@
     uv run python -m evals.run_evals work            # claim and run eval_attempt jobs
     uv run python -m evals.run_evals status <experiment_id>
 
-`--config` is `scripted_<script>` (free, no API key) or `settings` (the agent .env configures).
+`--config` is a registered configuration (lite_single_v1, ...), `scripted_<script>` (free, no API
+key) or `settings` (the agent .env configures). The held-out test split needs --allow-test-split.
 Creating the same `--key` again returns the existing experiment. Attempts run one at a time,
 under the environment lock, on a worker that only takes `eval_attempt` jobs.
 """
@@ -30,6 +31,7 @@ from evals.db import EVAL_SCHEMA
 from evals.environment import MockClients
 from evals.execution import EvalContext, install
 from evals.experiments import JOB_TYPE, ExperimentPlan, create_experiment
+from evals.plans import estimate_quota, load_plan, planned_runs, quota_hits
 
 
 def mock_clients() -> MockClients:
@@ -47,17 +49,43 @@ def mock_clients() -> MockClients:
 
 def create(args: argparse.Namespace) -> None:
     engine = get_engine()
-    plan = ExperimentPlan(
-        name=args.name,
-        dataset=args.dataset,
-        split=args.split,
-        configs=[named_config(name) for name in args.config],
-        repetitions=args.repetitions,
-        idempotency_key=args.key,
-    )
+    if args.plan:
+        plan = load_plan(args.plan, allow_test_split=args.allow_test_split)
+    else:
+        if not args.name or not args.config:
+            raise SystemExit("give --plan, or --name and at least one --config")
+        plan = ExperimentPlan(
+            name=args.name,
+            dataset=args.dataset,
+            split=args.split,
+            configs=[named_config(name) for name in args.config],
+            repetitions=args.repetitions,
+            idempotency_key=args.key,
+            allow_test_split=args.allow_test_split,
+        )
     with Session(engine) as db:
         experiment_id, created = create_experiment(db, plan)
-    print(f"{'created' if created else 'already exists'}: {experiment_id}")
+        runs = planned_runs(db.connection(), plan)
+    print(f"{'created' if created else 'already exists'}: {experiment_id} ({runs} planned runs)")
+
+
+def estimate(args: argparse.Namespace) -> None:
+    plan = load_plan(args.plan)
+    with Session(get_engine()) as db:
+        connection = db.connection()
+        runs = planned_runs(connection, plan)
+        sizing = estimate_quota(connection, args.pilot, plan, runs)
+        hits = quota_hits(connection)
+    print(f"{plan.name}: {runs} planned runs")
+    for model, row in sizing.items():
+        print(
+            f"  {model}: {row['planned_runs']} runs x {row['pilot_mean_calls_per_run']:.1f} calls "
+            f"= {row['requests']} requests ({row['requests_with_headroom']} with headroom)"
+        )
+    for hit in hits:
+        print(f"  quota hit: {hit['quota']} ({hit['hits']}x, first {hit['first_seen']})")
+    if not hits:
+        print("  no quota error seen yet: the daily limit is still unmeasured")
 
 
 def work(_: argparse.Namespace) -> None:
@@ -95,13 +123,19 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
     make = commands.add_parser("create")
-    make.add_argument("--name", required=True)
+    make.add_argument("--plan", help="a manifest in evals/plans/ (name or path)")
+    make.add_argument("--allow-test-split", action="store_true")
+    make.add_argument("--name")
     make.add_argument("--dataset", default="support-v1")
     make.add_argument("--split", default="pilot")
-    make.add_argument("--config", action="append", required=True)
+    make.add_argument("--config", action="append")
     make.add_argument("--repetitions", type=int, default=1)
     make.add_argument("--key")
     make.set_defaults(func=create)
+    size = commands.add_parser("estimate")
+    size.add_argument("--plan", required=True)
+    size.add_argument("--pilot", required=True, help="the pilot experiment ID")
+    size.set_defaults(func=estimate)
     commands.add_parser("work").set_defaults(func=work)
     show = commands.add_parser("status")
     show.add_argument("experiment_id")

@@ -38,6 +38,19 @@ class LeaseLost(Exception):
     """The job was reclaimed by another worker; this worker must not finish it."""
 
 
+class Deferred(Exception):
+    """Raised by a handler: nothing is wrong with the job, it cannot run before `available_at`.
+
+    The worker puts the job back in the queue without counting the attempt, so a long wait
+    (an exhausted daily quota, say) never uses up the job's retries.
+    """
+
+    def __init__(self, available_at: datetime, reason: str) -> None:
+        super().__init__(reason)
+        self.available_at = available_at
+        self.reason = reason
+
+
 def enqueue(
     db: Session,
     job_type: str,
@@ -133,6 +146,22 @@ def fail(db: Session, job: Job, error: str) -> None:
             raise LeaseLost(job.id)
         return
     finish(db, job, "failed", error=error)
+
+
+def defer(db: Session, job: Job, *, available_at: datetime, reason: str) -> None:
+    """Put a running job back in the queue for later, giving the attempt back."""
+    deferred = db.execute(
+        text(
+            f"UPDATE {SCHEMA}.jobs SET status = 'queued', worker_id = NULL, lease_token = NULL, "
+            "lease_expires_at = NULL, attempts = GREATEST(attempts - 1, 0), "
+            "available_at = :at, last_error = :reason "
+            "WHERE id = :id AND status = 'running' AND lease_token = :token RETURNING id"
+        ),
+        {"id": job.id, "token": job.lease_token, "at": available_at, "reason": reason[:2000]},
+    ).scalar_one_or_none()
+    db.commit()
+    if deferred is None:
+        raise LeaseLost(job.id)
 
 
 def finish(db: Session, job: Job, status: str, *, error: str | None) -> None:

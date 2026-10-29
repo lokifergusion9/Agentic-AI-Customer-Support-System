@@ -1,0 +1,8 @@
+# Step 4: the model comparison, on the validation split only (Flash allows 20 requests a day,
+# about 60 Flash calls = 3 days). Compare with lite_specialist_v1 on the same split.
+name: model-comparison
+dataset: support-v1
+split: validation
+configs: [flash_specialist_v1]
+repetitions: 1
+idempotency_key: model-comparison-v1

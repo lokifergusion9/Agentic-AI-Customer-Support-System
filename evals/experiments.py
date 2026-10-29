@@ -37,10 +37,18 @@ class ExperimentPlan:
     configs: list[dict[str, Any]]  # agent_configs rows
     repetitions: int = 1
     idempotency_key: str | None = None
+    # The held-out test split is never used while tuning prompts (W4.2): asking for it takes
+    # an explicit acknowledgement that the configurations are frozen.
+    allow_test_split: bool = False
 
 
 def create_experiment(db: Session, plan: ExperimentPlan) -> tuple[str, bool]:
     """Returns (experiment ID, created). Commits."""
+    if plan.split == "test" and not plan.allow_test_split:
+        raise ValueError(
+            "the test split is held out: it is read only once the prompts and configurations "
+            "are frozen. Pass allow_test_split (--allow-test-split) to confirm that."
+        )
     key = plan.idempotency_key or f"{plan.name}:{secrets.token_hex(4)}"
     connection = db.connection()
     existing = connection.execute(

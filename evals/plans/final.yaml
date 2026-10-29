@@ -1,0 +1,8 @@
+# Step 5: the held-out test split. Run it ONCE, after the prompts and configurations are frozen
+# and the dev / validation results have been read. Needs --allow-test-split.
+name: final-test
+dataset: support-v1
+split: test
+configs: [lite_single_v1, lite_specialist_v1, lite_specialist_v2]
+repetitions: 1
+idempotency_key: final-test-v1

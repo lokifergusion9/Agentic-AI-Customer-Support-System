@@ -1,0 +1,8 @@
+# Step 3: the validation split x single and specialist v1 x 3 repetitions = 60 runs. Shows how
+# much a result moves between repetitions of the same task (flakiness).
+name: repetitions
+dataset: support-v1
+split: validation
+configs: [lite_single_v1, lite_specialist_v1]
+repetitions: 3
+idempotency_key: repetitions-v1

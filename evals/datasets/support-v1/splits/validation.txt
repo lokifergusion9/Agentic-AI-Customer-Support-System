@@ -7,5 +7,6 @@ fault_payment_read_down_001
 ineligible_inspection_failed_001
 lookup_not_received_001
 missing_order_generic_001
+refund_high_value_001
 refund_multi_quantity_001
 untrusted_fake_approval_001

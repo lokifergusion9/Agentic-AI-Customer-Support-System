@@ -8,6 +8,10 @@ reset environment -> run adapter -> snapshot -> evaluate -> store scores.
 - An infrastructure failure (an exception out of the environment or the adapter) is retried
   by the queue as a new attempt in a fresh environment, a bounded number of times. Agent
   behaviour is never retried: a finished attempt is final, whatever its score.
+- The model provider failing is not the agent's behaviour either. A quota error (HTTP 429)
+  defers the job to when the quota is back, without using a retry, and holds back the other
+  queued runs of that model; other provider errors follow the infrastructure retry policy.
+  A long experiment therefore waits out a daily quota and resumes, losing no run (W5.2).
 - A worker that dies leaves its attempt `running`. Whoever holds the job next marks it
   `interrupted` and starts a replacement; only the final attempt is counted. A stale worker
   cannot finalize: every final write checks the job's lease token and the attempt's status.
@@ -19,14 +23,16 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db import SCHEMA
 from app.jobs.handlers import HandlerContext, register
-from app.jobs.queue import Job
+from app.jobs.queue import Deferred, Job
 from app.policies.embeddings import Embedder
 from app.services.providers import ProviderClient
 from evals.adapters.base import AgentAdapter, AgentResult, AttemptContext
@@ -120,6 +126,9 @@ def run_attempt_job(db: Session, job: Job, ctx: EvalContext) -> None:
         return
 
     trace = read_trace(db, attempt_id)
+    if (failure := provider_failure(trace)) is not None:
+        end_attempt_on_provider_failure(db, job, run, attempt_id, failure)
+        return
     record = AttemptRecord(
         task=task,
         agent_input=agent.agent_input,
@@ -222,6 +231,82 @@ def run_with_timeout(
         timer.cancel()
     elapsed_ms = (time.monotonic() - started) * 1000
     return result, elapsed_ms, context.cancel.is_set()
+
+
+PACIFIC = ZoneInfo("America/Los_Angeles")  # Gemini's daily quotas reset at midnight Pacific
+MIN_QUOTA_WAIT_SECONDS = 60
+
+
+def provider_failure(trace: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The model provider's error that ended the run, if one did: not agent behaviour."""
+    halts = [
+        e["payload"]
+        for e in trace
+        if e["event_type"] == "run_halted" and e["payload"].get("stop_reason") == "model_error"
+    ]
+    if not halts:
+        return None
+    last_error = next(
+        (
+            e["payload"]
+            for e in reversed(trace)
+            if e["event_type"] == "model_call" and e["payload"].get("outcome") == "error"
+        ),
+        {},
+    )
+    return {
+        "code": halts[-1].get("code"),
+        "quota": last_error.get("error_detail"),
+        "retry_after_s": last_error.get("retry_after_s"),
+    }
+
+
+def quota_resume_at(failure: dict[str, Any], now: datetime | None = None) -> datetime:
+    """When to try again: past the next Pacific midnight for a daily quota, else soon."""
+    now = now or datetime.now(UTC)
+    if "PerDay" in (failure.get("quota") or ""):
+        tomorrow = now.astimezone(PACIFIC) + timedelta(days=1)
+        return tomorrow.replace(hour=0, minute=5, second=0, microsecond=0).astimezone(UTC)
+    wait = max(failure.get("retry_after_s") or 0, MIN_QUOTA_WAIT_SECONDS)
+    return now + timedelta(seconds=wait)
+
+
+def end_attempt_on_provider_failure(
+    db: Session, job: Job, run: dict[str, Any], attempt_id: str, failure: dict[str, Any]
+) -> None:
+    detail = {"provider_error": failure["code"], "quota": failure["quota"]}
+    db.execute(
+        text(
+            f"UPDATE {EVAL_SCHEMA}.attempts SET status = 'error', finished_at = now(), "
+            "execution_status = 'infrastructure_error', error = CAST(:error AS jsonb) "
+            "WHERE id = :id AND status = 'running'"
+        ),
+        {"id": attempt_id, "error": json.dumps(detail)},
+    )
+    db.commit()
+    if failure["code"] != "HTTP_429":
+        record_infrastructure_error(
+            db, job, run["id"], None, RuntimeError(f"model provider error {failure['code']}")
+        )
+        return
+    resume = quota_resume_at(failure)
+    # Other queued runs of this model would only meet the same quota: hold them back too.
+    db.execute(
+        text(
+            f"UPDATE {SCHEMA}.jobs j SET available_at = :at "
+            f"FROM {EVAL_SCHEMA}.runs r JOIN {EVAL_SCHEMA}.agent_configs c "
+            "ON c.id = r.agent_config_id "
+            "WHERE j.job_type = 'eval_attempt' AND j.status = 'queued' "
+            "AND j.payload->>'run_id' = r.id AND c.model_id = :model AND j.available_at < :at"
+        ),
+        {"at": resume, "model": run["agent_config"]["model_id"]},
+    )
+    db.execute(
+        text(f"UPDATE {EVAL_SCHEMA}.runs SET execution_status = 'queued' WHERE id = :id"),
+        {"id": run["id"]},
+    )
+    db.commit()
+    raise Deferred(resume, f"model quota exhausted ({failure['quota'] or failure['code']})")
 
 
 def execution_status(result: AgentResult, timed_out: bool) -> str:

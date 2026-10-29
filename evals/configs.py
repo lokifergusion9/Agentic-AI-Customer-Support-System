@@ -133,11 +133,42 @@ def scripted_config_row(script: str) -> dict[str, Any]:
     return {"id": f"scripted_{script}", **row, "config_hash": sha256(row)}
 
 
+# The four configurations of the experiment plan (W5.2). Flash-Lite is the main model: Flash
+# allows only 20 requests a day on the free tier. Each comparison changes one thing.
+REGISTRY: dict[str, dict[str, str]] = {
+    "lite_single_v1": {
+        "model_id": "gemini-3.5-flash-lite",
+        "architecture": "single",
+        "prompt_version": "v1",
+    },
+    "lite_specialist_v1": {
+        "model_id": "gemini-3.5-flash-lite",
+        "architecture": "specialist",
+        "prompt_version": "v1",
+    },
+    "lite_specialist_v2": {
+        "model_id": "gemini-3.5-flash-lite",
+        "architecture": "specialist",
+        "prompt_version": "v2",
+    },
+    "flash_specialist_v1": {
+        "model_id": "gemini-3.5-flash",
+        "architecture": "specialist",
+        "prompt_version": "v1",
+    },
+}
+
+
 def named_config(name: str) -> dict[str, Any]:
-    """`scripted_<script>`, or `settings`: the agent the .env configures (AgentConfig)."""
+    """A registered configuration, `scripted_<script>`, or `settings` (what .env configures)."""
+    if name in REGISTRY:
+        config = AgentConfig(provider="gemini", **REGISTRY[name])  # type: ignore[arg-type]
+        return config_row(name, config)
     if name.startswith("scripted_"):
         return scripted_config_row(name.removeprefix("scripted_"))
     if name == "settings":
         config = AgentConfig.from_settings()
         return config_row(config.config_id, config)
-    raise ValueError(f"unknown config {name!r}: use scripted_<script> or settings")
+    raise ValueError(
+        f"unknown config {name!r}: use {', '.join(REGISTRY)}, scripted_<script> or settings"
+    )

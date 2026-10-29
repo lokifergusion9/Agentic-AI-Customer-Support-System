@@ -699,8 +699,9 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
 
   Expected volume: about 1,300 Flash-Lite calls (≈ 6 per specialist run, ≈ 5 per single-agent run, W2.16 call saving) and about 60 Flash calls, spread over several days by the queue.
 
-  - [ ] Same tasks, environment, limits, reviewer behavior and fault configuration for every config (E§22).
-  - [ ] When the daily quota runs out, jobs wait (`available_at`) instead of failing, so a long experiment resumes the next day without losing runs.
+  - [x] Same tasks, environment, limits, reviewer behavior and fault configuration for every config (E§22).
+  - [x] When the daily quota runs out, jobs wait (`available_at`) instead of failing, so a long experiment resumes the next day without losing runs.
+  - *Built (2026-10-29), real runs still to do:* four registered configs (`evals/configs.py`, prompt v2 in `app/agents/prompts/*_v2.md`), plan manifests in `evals/plans/` (pilot 5, main 150, repetitions 60, model comparison 10), `python -m evals.run_evals create --plan <name>` and `estimate`, the held-out test split behind `--allow-test-split`, and a 429 deferral (the attempt is an infrastructure error, the job waits for the quota without using a retry, and the other queued runs of that model wait with it). Splits are now dev 30 / validation 10 / test 10. The experiments themselves run once the eval database exists (W5.8); their results are recorded in the README (W5.9).
 - [ ] **W5.3 — Comparison queries** (E§22, E§25). Compare only **compatible** experiments: same dataset version, split, environment and evaluator versions, and limits. Show same-task wins and losses, the **regressed tasks**, and the differences in success rate, coverage, tool calls, tokens, cost and latency.
 
 ### API, reporting and interface

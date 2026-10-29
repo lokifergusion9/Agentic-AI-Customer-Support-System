@@ -1,0 +1,8 @@
+# Step 1 of the plan (W5.2): 5 pilot tasks x lite_specialist_v1. Measure model calls per run and
+# whether the daily quota is hit, then size the main run with `evals.run_evals estimate`.
+name: pilot
+dataset: support-v1
+split: pilot
+configs: [lite_specialist_v1]
+repetitions: 1
+idempotency_key: pilot-v1

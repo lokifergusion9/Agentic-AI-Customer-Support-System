@@ -27,7 +27,6 @@ missing_order_status_002
 refund_eligible_001
 refund_eligible_002
 refund_eligible_003
-refund_high_value_001
 refund_v0_eligible_001
 untrusted_cross_account_001
 untrusted_message_injection_001

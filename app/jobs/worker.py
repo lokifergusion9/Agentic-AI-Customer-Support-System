@@ -54,9 +54,13 @@ def process_next(sessions: Sessions, ctx: HandlerContext, config: WorkerConfig) 
     beat = threading.Thread(target=heartbeat, args=(sessions, job, config, stop), daemon=True)
     beat.start()
     error: str | None = None
+    deferred: queue.Deferred | None = None
     try:
         with sessions() as db:
             HANDLERS[job.job_type](db, job, ctx)
+    except queue.Deferred as later:
+        logger.info("job %s deferred until %s: %s", job.id, later.available_at, later.reason)
+        deferred = later
     except Exception as exc:
         logger.exception("job %s failed", job.id)
         error = f"{type(exc).__name__}: {exc}"
@@ -65,7 +69,9 @@ def process_next(sessions: Sessions, ctx: HandlerContext, config: WorkerConfig) 
         beat.join()
     try:
         with sessions() as db:
-            if error is None:
+            if deferred is not None:
+                queue.defer(db, job, available_at=deferred.available_at, reason=deferred.reason)
+            elif error is None:
                 queue.complete(db, job)
             else:
                 queue.fail(db, job, error)

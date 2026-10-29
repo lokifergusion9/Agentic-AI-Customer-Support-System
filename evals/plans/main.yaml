@@ -1,0 +1,8 @@
+# Step 2: all 50 tasks x the three Flash-Lite configs x 1 repetition = 150 runs. Compares
+# architecture (single vs specialist, prompt v1) and prompt (specialist v1 vs v2).
+name: main
+dataset: support-v1
+split: all
+configs: [lite_single_v1, lite_specialist_v1, lite_specialist_v2]
+repetitions: 1
+idempotency_key: main-v1

@@ -89,7 +89,12 @@ def load_dataset(dataset: str, *, require_locked: bool = True) -> list[LoadedTas
 
 
 def split_ids(dataset: str, split: str) -> list[str]:
-    """Task IDs listed in `<dataset>/splits/<split>.txt`, skipping comments."""
+    """Task IDs listed in `<dataset>/splits/<split>.txt`, skipping comments.
+
+    `all` is every task of the dataset (dev, validation and test together).
+    """
+    if split == "all":
+        return sorted(path.stem for path in (DATASETS / dataset / "tasks").glob("*.yaml"))
     path = DATASETS / dataset / "splits" / f"{split}.txt"
     lines = (line.strip() for line in path.read_text(encoding="utf-8").splitlines())
     return [line for line in lines if line and not line.startswith("#")]
