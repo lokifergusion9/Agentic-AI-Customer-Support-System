@@ -11,7 +11,8 @@ import jwt
 
 from app.config import Settings, get_settings
 
-ROLES = ("customer", "reviewer", "senior_reviewer")
+# operator: runs and reads the evaluation platform (Q12); it is no customer and no reviewer.
+ROLES = ("customer", "reviewer", "senior_reviewer", "operator")
 REQUIRED_CLAIMS = ["exp", "iat", "sub", "role"]
 
 
