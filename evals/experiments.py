@@ -222,3 +222,40 @@ def code_commit() -> str:
 
 def file_hash(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def plan_from_experiment(
+    connection: Connection, experiment_id: str, *, idempotency_key: str | None = None
+) -> ExperimentPlan:
+    """The plan of a saved experiment, to run it again from its manifest (W5.5, W5.8).
+
+    The configurations are read back as the immutable rows they were registered as, so the
+    rerun uses exactly the models, prompts and limits of the original. The dataset must still
+    match the version hash recorded then, or creating the experiment refuses.
+    """
+    experiment = connection.execute(
+        text(
+            f"SELECT name, dataset_version_id, split, repetitions, manifest "
+            f"FROM {EVAL_SCHEMA}.experiments WHERE id = :id"
+        ),
+        {"id": experiment_id},
+    ).one_or_none()
+    if experiment is None:
+        raise LookupError(f"no experiment {experiment_id!r}")
+    rows = connection.execute(
+        text(f"SELECT * FROM {EVAL_SCHEMA}.agent_configs WHERE id = ANY(:ids)"),
+        {"ids": list(experiment.manifest["configs"])},
+    )
+    configs = {row.id: dict(row._mapping) for row in rows}
+    ordered = [configs[config_id] for config_id in experiment.manifest["configs"]]
+    for row in ordered:
+        row.pop("created_at", None)
+    return ExperimentPlan(
+        name=f"{experiment.name}-rerun",
+        dataset=experiment.dataset_version_id,
+        split=experiment.split,
+        configs=ordered,
+        repetitions=experiment.repetitions,
+        idempotency_key=idempotency_key,
+        allow_test_split=experiment.split == "test",
+    )

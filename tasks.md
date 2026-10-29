@@ -722,7 +722,7 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
   | `GET /eval/experiments/{id}/export` | Download the report (W5.5) |
 
   - [ ] `POST /eval/experiments` takes an `Idempotency-Key`: the same key and payload return the same experiment, and a conflicting reuse is rejected.
-- [ ] **W5.5 — Reproducible report export** (E§1, E§22). JSON and CSV in `evals/reports/<experiment_id>/`: the full manifest (dataset version and hash, configs, model IDs as resolved by the provider, prompt hashes, tool-schema hash, code commit, lockfile hash, fault configuration, environment and evaluator versions), the scorecard, and one row per run.
+- [x] **W5.5 — Reproducible report export** (E§1, E§22). JSON and CSV in `evals/reports/<experiment_id>/`: the full manifest (dataset version and hash, configs, model IDs as resolved by the provider, prompt hashes, tool-schema hash, code commit, lockfile hash, fault configuration, environment and evaluator versions), the scorecard, and one row per run.
 - [ ] **W5.6 — Demo and debugging interface** (§18, E§25). Jinja2 templates with light JavaScript (E§6):
   - Agent demo (the original §18 screens): customer complaint panel, workflow timeline, evidence and policy panel, approval queue (W3.8), final outcome panel.
   - **Experiment list:** configuration, dataset, progress, success rate, coverage, tokens and cost, start time.

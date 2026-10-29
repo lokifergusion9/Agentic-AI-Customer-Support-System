@@ -2,6 +2,7 @@
 
     uv run python -m evals.run_evals create --name pilot --dataset support-v1 --split pilot \
         --config scripted_correct [--config settings] [--repetitions 1] [--key pilot-1]
+    uv run python -m evals.run_evals rerun <experiment_id>           # same plan, new experiment
     uv run python -m evals.run_evals work            # claim and run eval_attempt jobs
     uv run python -m evals.run_evals status <experiment_id>
 
@@ -30,7 +31,12 @@ from evals.configs import named_config
 from evals.db import EVAL_SCHEMA
 from evals.environment import MockClients
 from evals.execution import EvalContext, install
-from evals.experiments import JOB_TYPE, ExperimentPlan, create_experiment
+from evals.experiments import (
+    JOB_TYPE,
+    ExperimentPlan,
+    create_experiment,
+    plan_from_experiment,
+)
 from evals.plans import estimate_quota, load_plan, planned_runs, quota_hits
 
 
@@ -64,6 +70,15 @@ def create(args: argparse.Namespace) -> None:
             allow_test_split=args.allow_test_split,
         )
     with Session(engine) as db:
+        experiment_id, created = create_experiment(db, plan)
+        runs = planned_runs(db.connection(), plan)
+    print(f"{'created' if created else 'already exists'}: {experiment_id} ({runs} planned runs)")
+
+
+def rerun(args: argparse.Namespace) -> None:
+    """Run a saved experiment again from its manifest: same dataset, split, configs, reps."""
+    with Session(get_engine()) as db:
+        plan = plan_from_experiment(db.connection(), args.experiment_id, idempotency_key=args.key)
         experiment_id, created = create_experiment(db, plan)
         runs = planned_runs(db.connection(), plan)
     print(f"{'created' if created else 'already exists'}: {experiment_id} ({runs} planned runs)")
@@ -136,6 +151,10 @@ def main() -> None:
     size.add_argument("--plan", required=True)
     size.add_argument("--pilot", required=True, help="the pilot experiment ID")
     size.set_defaults(func=estimate)
+    again = commands.add_parser("rerun")
+    again.add_argument("experiment_id")
+    again.add_argument("--key", help="idempotency key of the new experiment")
+    again.set_defaults(func=rerun)
     commands.add_parser("work").set_defaults(func=work)
     show = commands.add_parser("status")
     show.add_argument("experiment_id")
