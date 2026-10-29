@@ -116,3 +116,28 @@ def register_prompts(connection: Connection, config: AgentConfig) -> None:
                 f"prompt {prompt.label} changed since it was registered; "
                 "save the change as a new prompt version"
             )
+
+
+def scripted_config_row(script: str) -> dict[str, Any]:
+    """The scripted adapter as an agent config: the script name stands in for the model."""
+    row = {
+        "adapter": "scripted",
+        "provider": "none",
+        "model_id": script,
+        "prompt_version": "none",
+        "architecture": "scripted",
+        "prompt_hashes": {},
+        "limits": {},
+        "tool_schema_hash": tool_schema_hash(),
+    }
+    return {"id": f"scripted_{script}", **row, "config_hash": sha256(row)}
+
+
+def named_config(name: str) -> dict[str, Any]:
+    """`scripted_<script>`, or `settings`: the agent the .env configures (AgentConfig)."""
+    if name.startswith("scripted_"):
+        return scripted_config_row(name.removeprefix("scripted_"))
+    if name == "settings":
+        config = AgentConfig.from_settings()
+        return config_row(config.config_id, config)
+    raise ValueError(f"unknown config {name!r}: use scripted_<script> or settings")

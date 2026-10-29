@@ -605,11 +605,11 @@ Ground rules for every Week 4 task:
 
 ### Execution and scoring
 
-- [ ] **W4.8 — Experiment execution on the worker** (E§17, E§18). `evals/run_evals.py` creates an experiment from a manifest. The experiment, its runs and one `eval_attempt` job per run are created **in one transaction**. The W3.13 worker handles `eval_attempt` jobs: reset environment → run adapter → snapshot → evaluate → store scores.
-  - [ ] **Execution status** (`queued`, `running`, `completed`, `timed_out`, `budget_exceeded`, `infrastructure_error`, `cancelled`) is kept separate from **evaluation status** (`pending`, `pass`, `fail`, `partial`, `not_applicable`, `evaluation_error`). A confident wrong answer is `completed` + `fail`. A turn-limit stop is an unsuccessful completion with its stop reason preserved.
-  - [ ] Retry policy (E§17): an infrastructure failure gets a bounded retry as a **new attempt with a fresh environment**. Agent behavior failures are never retried. Model retries (for example HTTP 429) are recorded with their usage.
-  - [ ] Configurations are interleaved in run order, so quota or time-of-day effects do not favor one (E§22).
-  - [ ] A killed worker leaves an interrupted attempt; the lease sweep creates a replacement attempt with a fresh environment, and the stale worker cannot finalize (lease token from W3.13).
+- [x] **W4.8 — Experiment execution on the worker** (E§17, E§18). `evals/run_evals.py` creates an experiment from a manifest. The experiment, its runs and one `eval_attempt` job per run are created **in one transaction**. The W3.13 worker handles `eval_attempt` jobs: reset environment → run adapter → snapshot → evaluate → store scores.
+  - [x] **Execution status** (`queued`, `running`, `completed`, `timed_out`, `budget_exceeded`, `infrastructure_error`, `cancelled`) is kept separate from **evaluation status** (`pending`, `pass`, `fail`, `partial`, `not_applicable`, `evaluation_error`). A confident wrong answer is `completed` + `fail`. A turn-limit stop is an unsuccessful completion with its stop reason preserved.
+  - [x] Retry policy (E§17): an infrastructure failure gets a bounded retry as a **new attempt with a fresh environment**. Agent behavior failures are never retried. Model retries (for example HTTP 429) are recorded with their usage.
+  - [x] Configurations are interleaved in run order, so quota or time-of-day effects do not favor one (E§22).
+  - [x] A killed worker leaves an interrupted attempt; the lease sweep creates a replacement attempt with a fresh environment, and the stale worker cannot finalize (lease token from W3.13).
 - [x] **W4.9 — Four independent evaluators** (E§13, E§14). In `evals/evaluators/`, each versioned, reading the evaluator view, the final-state snapshot and the trace, and never calling a model:
 
   | Evaluator | Checks |
