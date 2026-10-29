@@ -5,6 +5,7 @@ from alembic.config import Config
 from sqlalchemy import Engine, text
 
 from app.db import SCHEMA
+from evals.db import EVAL_SCHEMA
 
 APP_TABLES = {
     "customers",
@@ -40,11 +41,13 @@ def extensions(engine: Engine) -> set[str]:
 def test_downgrade_then_upgrade_reproduces_the_schema(alembic_cfg: Config, engine: Engine) -> None:
     command.downgrade(alembic_cfg, "base")
     assert tables(engine, SCHEMA) == {"alembic_version"}
+    assert tables(engine, EVAL_SCHEMA) == set()
     assert not {"vector", "btree_gist"} & extensions(engine)
 
     command.upgrade(alembic_cfg, "head")
     assert tables(engine, SCHEMA) == APP_TABLES | {"alembic_version"}
     assert {"vector", "btree_gist"} <= extensions(engine)
+    assert len(tables(engine, EVAL_SCHEMA)) == 12  # W4.3, listed in test_eval_schema
 
 
 def test_app_tables_are_kept_out_of_the_public_schema(engine: Engine) -> None:

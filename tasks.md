@@ -555,7 +555,7 @@ Ground rules for every Week 4 task:
 
 ### Platform storage and environment
 
-- [ ] **W4.3 — `eval` schema and migrations** (E§16, Q8). A separate PostgreSQL schema, created by migrations like the rest:
+- [x] **W4.3 — `eval` schema and migrations** (E§16, Q8). A separate PostgreSQL schema, created by migrations like the rest:
 
   | Table | Purpose |
   |---|---|
@@ -571,9 +571,9 @@ Ground rules for every Week 4 task:
   | `scores` | One row per evaluator dimension (score contract, W4.9) |
   | `price_versions` | Dated per-model rates, so cost can be estimated at paid rates although the free tier costs $0 (Q4) |
 
-  - [ ] Constraints (E§16): `UNIQUE(experiment_id, agent_config_id, task_version_id, repetition)`, `UNIQUE(run_id, attempt_number)`, `UNIQUE(attempt_id, sequence_number)`, `UNIQUE(attempt_id, evaluator_name, evaluator_version, dimension)`.
-  - [ ] Indexes for run status per experiment, events by attempt and sequence, and scores by experiment and category.
-  - [ ] JSONB for flexible payloads, explicit columns for anything that is filtered on.
+  - [x] Constraints (E§16): `UNIQUE(experiment_id, agent_config_id, task_version_id, repetition)`, `UNIQUE(run_id, attempt_number)`, `UNIQUE(attempt_id, sequence_number)`, `UNIQUE(attempt_id, evaluator_name, evaluator_version, dimension)`.
+  - [x] Indexes for run status per experiment, events by attempt and sequence, and scores by experiment and category.
+  - [x] JSONB for flexible payloads, explicit columns for anything that is filtered on.
 - [ ] **W4.4 — Per-attempt environment** (E§7, Q11). `evals/environment.py`:
   1. Take a PostgreSQL advisory lock, so only one attempt uses the environment at a time even if two workers run.
   2. Reset the business tables (reusing the W1.2 reset; `jobs`, policy tables and the `eval` schema are never touched) and reset the three mocks.
