@@ -585,7 +585,7 @@ Ground rules for every Week 4 task:
 
 ### Agents under test
 
-- [ ] **W4.5 — Deterministic reviewer simulator** (E§8). When a run waits for approval, the simulator reads `reviewer_behavior`. It approves **only** a proposal matching the permitted action (action, order and amount), rejects anything else, or lets the approval expire by advancing the clock. It decides through the real approval service (W1.15 / W3.4) with a simulator reviewer identity of the required role, so the same authorization checks apply. Results are reported as **simulated approval outcomes**, and time spent waiting is measured separately from active execution.
+- [x] **W4.5 — Deterministic reviewer simulator** (E§8). When a run waits for approval, the simulator reads `reviewer_behavior`. It approves **only** a proposal matching the permitted action (action, order and amount), rejects anything else, or lets the approval expire by advancing the clock. It decides through the real approval service (W1.15 / W3.4) with a simulator reviewer identity of the required role, so the same authorization checks apply. Results are reported as **simulated approval outcomes**, and time spent waiting is measured separately from active execution.
 - [ ] **W4.6 — Adapter interface and scripted adapter** (E§10). In `evals/adapters/`:
 
   ```python
