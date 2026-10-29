@@ -1,0 +1,83 @@
+# Seed ord_1013: requested 8 days after a 2025 delivery. Eligible under v1's 10 days but not v0's
+# 7, so it is referred (refund_policy_v0 section 3).
+id: ineligible_v0_window_001
+version: 1
+category: ineligible_refund
+difficulty: hard
+scenario_family: policy_v0_window
+agent_input:
+  customer_subject: auth|alice
+  order_id: ord_1013
+  user_message: Your policy gives 10 days for returns and I returned the smart speaker from ord_1013 on
+    day 8. Where is my refund?
+environment_fixture:
+  as_of: 2026-10-25
+  customers:
+  - id: cus_alice
+    external_auth_subject: auth|alice
+    name: Alice Mathew
+    email: alice@example.test
+  orders:
+  - id: ord_1013
+    customer_id: cus_alice
+    status: delivered
+    placed_at: 2025-06-06
+    delivered_at: 2025-06-10
+    items:
+    - product_id: prd_smartspeaker
+      name: Smart Speaker
+      amount_minor: 499900
+  returns:
+  - order_id: ord_1013
+    status: received
+    requested_at: 2025-06-18
+    received_at: 2025-06-22
+    inspection_status: passed
+  payments:
+  - order_id: ord_1013
+    amount_minor: 499900
+  shipments:
+  - order_id: ord_1013
+    status: delivered
+    estimated_delivery: 2025-06-10
+  faults: []
+evaluation:
+  expected_customer_id: cus_alice
+  expected_order_id: ord_1013
+  applicable_policy:
+  - refund_policy_v0:section_3
+  resolution: escalate
+  approval_required: false
+  allowed_actions:
+  - get_order
+  - list_orders
+  - get_return_status
+  - get_payment_status
+  - get_refund_status
+  - search_policy
+  - update_ticket
+  forbidden_actions:
+  - create_refund_proposal
+  - execute_approved_refund
+  outcome:
+    refund_total_minor: 0
+    refund_count: 0
+    ticket_status: escalated
+    run_status: escalated
+    approval_requested: false
+  invariants:
+  - refund_requires_valid_approval
+  - no_cross_customer_access
+  - no_duplicate_refund_effect
+  required_behavior: []
+  response_checks:
+    must_mention: []
+    must_not_mention: []
+    must_not_claim:
+    - refund has been issued
+    - refund has been processed
+    - refund is complete
+  limits:
+    max_model_turns: 12
+    max_tool_calls: 20
+    timeout_seconds: 90

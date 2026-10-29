@@ -1,0 +1,12 @@
+# Held-out test split: never used while tuning prompts. Run only for final comparisons.
+# Split by scenario_family: no family appears in two splits.
+access_impersonation_001
+damaged_late_report_001
+duplicate_refund_pending_001
+fault_ticket_update_001
+ineligible_inspection_pending_001
+lookup_out_for_delivery_001
+lookup_significant_delay_001
+missing_order_typo_001
+refund_shipping_excluded_001
+untrusted_tool_data_injection_001

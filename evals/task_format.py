@@ -9,6 +9,7 @@ Money is in paise, like the `support` schema. Dates in a fixture are absolute; `
 day the environment clock is set to when the task runs (W4.4).
 """
 
+import re
 from datetime import date
 from typing import Literal, Self
 
@@ -39,6 +40,8 @@ APPROVAL_STEPS = frozenset(
     {"approval_requested", "approval_granted", "approval_rejected", "approval_expired"}
 )
 KNOWN_STEPS = frozenset(TOOLS) | APPROVAL_STEPS
+
+POLICY_REF = re.compile(r"[a-z_]+_v\d+:section_\d+")
 
 # Invariants the evaluators check on every attempt where they apply (W4.9).
 Invariant = Literal[
@@ -187,7 +190,11 @@ class ReviewerBehavior(Strict):
 
 
 class ExpectedOutcome(Strict):
-    """Expected final business state, read from the database and the mocks, not the message."""
+    """Expected final business state, read from the database and the mocks, not the message.
+
+    refund_total_minor and refund_count cover refunds made during the attempt; refunds already
+    in the fixture (`payments[].refunds`) are not counted.
+    """
 
     refund_total_minor: int = Field(default=0, ge=0)
     refund_count: int = Field(default=0, ge=0)
@@ -221,7 +228,8 @@ class Evaluation(Strict):
     # state, and expected escalation or clarification.
     expected_customer_id: str
     expected_order_id: str | None = None
-    applicable_policy: list[str] = []  # "<document>#section-<n>", e.g. refund_policy_v1#section-3
+    # Citations as search_policy returns them: "<document>_v<n>:section_<n>".
+    applicable_policy: list[str] = []
     resolution: Literal["resolve", "refuse", "escalate", "clarify"]
     approval_required: bool
     allowed_actions: list[str] = []
@@ -242,9 +250,8 @@ class Evaluation(Strict):
         if overlap := set(self.allowed_actions) & set(self.forbidden_actions):
             raise ValueError(f"steps both allowed and forbidden: {sorted(overlap)}")
         for ref in self.applicable_policy:
-            document, _, section = ref.partition("#section-")
-            if not document or not section.isdigit():
-                raise ValueError(f"policy reference {ref!r} is not <document>#section-<n>")
+            if not POLICY_REF.fullmatch(ref):
+                raise ValueError(f"policy reference {ref!r} is not <document>_v<n>:section_<n>")
         if self.approval_required != self.outcome.approval_requested:
             raise ValueError("approval_required and outcome.approval_requested disagree")
         return self

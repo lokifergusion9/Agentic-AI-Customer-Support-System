@@ -39,7 +39,7 @@ reviewer_behavior:
 evaluation:
   expected_customer_id: cus_alice
   expected_order_id: ord_1001
-  applicable_policy: [refund_policy_v1#section-3, refund_policy_v1#section-4, refund_policy_v1#section-5]
+  applicable_policy: [refund_policy_v1:section_3, refund_policy_v1:section_4, refund_policy_v1:section_5]
   resolution: resolve
   approval_required: true
   allowed_actions: [get_order, get_return_status, get_payment_status, get_refund_status, search_policy, create_refund_proposal, execute_approved_refund, update_ticket]

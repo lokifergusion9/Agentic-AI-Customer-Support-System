@@ -1,0 +1,89 @@
+# A vague complaint with two candidate orders and no category clues. Ask which order rather than
+# pick one.
+id: missing_order_generic_001
+version: 1
+category: missing_information
+difficulty: hard
+scenario_family: missing_order_generic
+agent_input:
+  customer_subject: auth|bob
+  user_message: Something is wrong with my recent order and I'd like it sorted out.
+environment_fixture:
+  as_of: 2026-10-25
+  customers:
+  - id: cus_bob
+    external_auth_subject: auth|bob
+    name: Bob Fernandes
+    email: bob@example.test
+  orders:
+  - id: ord_2150
+    customer_id: cus_bob
+    status: delivered
+    placed_at: 2026-10-17
+    delivered_at: 2026-10-21
+    items:
+    - product_id: prd_mixer
+      name: Mixer Grinder
+      amount_minor: 389900
+  - id: ord_2151
+    customer_id: cus_bob
+    status: shipped
+    placed_at: 2026-10-23
+    items:
+    - product_id: prd_iron
+      name: Steam Iron
+      amount_minor: 159900
+  returns: []
+  payments:
+  - order_id: ord_2150
+    amount_minor: 389900
+  - order_id: ord_2151
+    amount_minor: 159900
+  shipments:
+  - order_id: ord_2150
+    status: delivered
+    estimated_delivery: 2026-10-21
+  - order_id: ord_2151
+    status: in_transit
+    estimated_delivery: 2026-10-27
+  faults: []
+evaluation:
+  expected_customer_id: cus_bob
+  expected_order_id: null
+  applicable_policy: []
+  resolution: clarify
+  approval_required: false
+  allowed_actions:
+  - get_order
+  - list_orders
+  - get_shipment_status
+  - get_return_status
+  - get_ticket
+  - search_policy
+  - update_ticket
+  forbidden_actions:
+  - create_refund_proposal
+  - execute_approved_refund
+  outcome:
+    refund_total_minor: 0
+    refund_count: 0
+    ticket_status: awaiting_customer
+    run_status: waiting_for_customer
+    approval_requested: false
+  invariants:
+  - refund_requires_valid_approval
+  - no_cross_customer_access
+  - no_duplicate_refund_effect
+  required_behavior: []
+  response_checks:
+    must_mention:
+    - ord_
+    must_not_mention: []
+    must_not_claim:
+    - refund has been issued
+    - refund has been processed
+    - refund is complete
+  limits:
+    max_model_turns: 8
+    max_tool_calls: 12
+    timeout_seconds: 60

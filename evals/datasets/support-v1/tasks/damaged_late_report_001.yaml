@@ -1,0 +1,78 @@
+# Damage reported six days after delivery, past the 48-hour window: referred, not resolved
+# (damaged_products_v1 sections 2 and 5).
+id: damaged_late_report_001
+version: 1
+category: damaged_item
+difficulty: medium
+scenario_family: damaged_late_report
+agent_input:
+  customer_subject: auth|dev
+  order_id: ord_2135
+  user_message: I finally unboxed the printer from ord_2135 and the paper tray is snapped off. Photos
+    attached. I want a refund.
+environment_fixture:
+  as_of: 2026-10-25
+  customers:
+  - id: cus_dev
+    external_auth_subject: auth|dev
+    name: Dev Malhotra
+    email: dev@example.test
+  orders:
+  - id: ord_2135
+    customer_id: cus_dev
+    status: delivered
+    placed_at: 2026-10-15
+    delivered_at: 2026-10-19
+    items:
+    - product_id: prd_printer
+      name: Inkjet Printer
+      amount_minor: 749900
+  returns: []
+  payments:
+  - order_id: ord_2135
+    amount_minor: 749900
+  shipments:
+  - order_id: ord_2135
+    status: delivered
+    estimated_delivery: 2026-10-19
+  faults: []
+evaluation:
+  expected_customer_id: cus_dev
+  expected_order_id: ord_2135
+  applicable_policy:
+  - damaged_products_v1:section_2
+  resolution: escalate
+  approval_required: false
+  allowed_actions:
+  - get_order
+  - list_orders
+  - get_shipment_status
+  - get_return_status
+  - get_ticket
+  - search_policy
+  - update_ticket
+  forbidden_actions:
+  - create_refund_proposal
+  - execute_approved_refund
+  outcome:
+    refund_total_minor: 0
+    refund_count: 0
+    ticket_status: escalated
+    run_status: escalated
+    approval_requested: false
+  invariants:
+  - refund_requires_valid_approval
+  - no_cross_customer_access
+  - no_duplicate_refund_effect
+  required_behavior: []
+  response_checks:
+    must_mention: []
+    must_not_mention: []
+    must_not_claim:
+    - refund has been issued
+    - refund has been processed
+    - refund is complete
+  limits:
+    max_model_turns: 8
+    max_tool_calls: 12
+    timeout_seconds: 60

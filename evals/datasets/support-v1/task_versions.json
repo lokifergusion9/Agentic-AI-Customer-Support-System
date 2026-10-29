@@ -1,5 +1,152 @@
 {
+  "access_impersonation_001": {
+    "1": "sha256:8c5b0115181bdcb983a5a64b74b73f9b01fdfb94adf82eb07a6403d6f1fc2a38"
+  },
+  "access_no_orders_001": {
+    "1": "sha256:53e12799303e605aaef044e86f3ba68ca905cb401c61a6e246b1fa7fd342d96e"
+  },
+  "access_other_refund_001": {
+    "1": "sha256:d33801054912e88d4b4979ad1d71973280e06d82f1b15d35f099507c2d5328be"
+  },
+  "access_other_status_001": {
+    "1": "sha256:074dba0637798360751df8b6aeda0333fe10e014d305083c4b89dddfec5ec87b"
+  },
+  "access_unknown_order_001": {
+    "1": "sha256:58b268515acbfc413dd66358e1122ffe088e14b7634dab64485083b817a2165f"
+  },
+  "damaged_late_report_001": {
+    "1": "sha256:b50f4a325b72293c2240d44a28c8925c171f5b93263e93b37845fe0013bf790c"
+  },
+  "damaged_missing_details_001": {
+    "1": "sha256:c997a4423810d6213edf18418cad74501156b74aa800212aab1519934692fd67"
+  },
+  "damaged_missing_photos_001": {
+    "1": "sha256:a287e5a15ab7e95ae28ce18bc1b2726efb08d875d4f4d1c3d41dcc2299d3d353"
+  },
+  "damaged_safety_risk_001": {
+    "1": "sha256:f2617cc430e07649a175baf0be05b9588567f87219f2e6a71d0291b9efbe11a1"
+  },
+  "damaged_safety_risk_002": {
+    "1": "sha256:e7c77b31846b4b9e8d0ddb5d0f53d58fc446e8d7e09137433fa2553959c60326"
+  },
+  "duplicate_refund_pending_001": {
+    "1": "sha256:9f0df172300c93ecfc7c51f44804e85189d331380f2e43a97469acf72948f3cb"
+  },
+  "duplicate_refund_succeeded_001": {
+    "1": "sha256:75111fa9483f9df8391d75937b05c2b79772f2ce877dda836ae0a045f35dd4d5"
+  },
+  "duplicate_refund_succeeded_002": {
+    "1": "sha256:f1ae49bb19ea64cef33b612e648648d0d902d912031faff9ded1918279c768bc"
+  },
+  "fault_payment_read_down_001": {
+    "1": "sha256:32c1ff6554711aef6677f04e2560005e112686bcedfe146847041baca6c39f46"
+  },
+  "fault_payment_read_transient_001": {
+    "1": "sha256:61be6f5e3a239868a6e0884f075f5d8f8ecaf52e3529329f72b8a1cbcd509ffb"
+  },
+  "fault_refund_5xx_once_001": {
+    "1": "sha256:a887ab8bfc8d997867aaf23573fd07a5f99e363c720c09aa9f48a94d50c91394"
+  },
+  "fault_refund_accept_timeout_001": {
+    "1": "sha256:e6dff46bc3cd0eab29ebda0776a01aeff651ba0ab318463533e02e171ca6dd5a"
+  },
+  "fault_shipping_transient_001": {
+    "1": "sha256:a0c9f30003b347dcd8767acb6cecf90982cfeb342f7a4bf9a784ceb079621d94"
+  },
+  "fault_ticket_update_001": {
+    "1": "sha256:30f61095133359ec2e1068562e3637fdbf52c8798f3d2536894cc52f020e4358"
+  },
+  "ineligible_inspection_failed_001": {
+    "1": "sha256:794bd552d7b8f220ef57ba7fbeddde3fcb13ecca9beea461c3794fda9bf21a75"
+  },
+  "ineligible_inspection_pending_001": {
+    "1": "sha256:ddbd3e4beab4357f7d42da6bfe21c4d1489bc9dbae7be340da775240e65edd5b"
+  },
+  "ineligible_outside_window_001": {
+    "1": "sha256:df03f4d4697b70b4c751d0775ef4d923f16d9f9e7e59ac10542ecbfc3d5464c8"
+  },
+  "ineligible_partial_return_001": {
+    "1": "sha256:19069d337fa040dd16f52ab9e15352642e3a53f078c8399aa4ac25782172867f"
+  },
+  "ineligible_return_in_transit_001": {
+    "1": "sha256:1f128552a07aeaef7b9ca400a664ad25cb794b43ba2cfbf13b490bda791a9737"
+  },
+  "ineligible_return_requested_001": {
+    "1": "sha256:ce7126cc74d8c9e792e91c8973748b1bbd0389162ec6a357e3d4329c27f88d60"
+  },
+  "ineligible_v0_window_001": {
+    "1": "sha256:3c62ee6a4b6407fc355c211a137cb1502a109a4af5376696bad5f0fb7bdc614c"
+  },
+  "lookup_delivered_001": {
+    "1": "sha256:34bec56c4b2f0bfb1afe760e5bed3bf94952163151bac19bfa576d500432793c"
+  },
+  "lookup_delivered_002": {
+    "1": "sha256:992cdfa01cdfd6628d7313c3433c741e93971e8163ead0edbfb4f3ad975e1432"
+  },
+  "lookup_minor_delay_001": {
+    "1": "sha256:6219c1342f9ec7e83696209ff3b66a7ad359862a1efe41327eab5375a00e842a"
+  },
+  "lookup_not_received_001": {
+    "1": "sha256:e7db367a5158fc36a6a9c949b25e1113d507ad32f213a257f7424622667eeda6"
+  },
+  "lookup_out_for_delivery_001": {
+    "1": "sha256:52ba195fa5ce1e3274b3f9372eec50dbdbb39e648938ad29921de3afc6b53eb6"
+  },
+  "lookup_return_in_transit_001": {
+    "1": "sha256:065340e2c8b024ff5d9a7ec7b4b8c9cc571273f91001bd5ff06709c7d78f212e"
+  },
+  "lookup_significant_delay_001": {
+    "1": "sha256:bc72ca866975f12cca58a33378e49951b67a3b813d6ae2e009068a817e5ed761"
+  },
+  "missing_order_generic_001": {
+    "1": "sha256:385bc72a787d9b05a973511b5e842ec1e79f7dfcd0b6b7020aa1de4363bbbebb"
+  },
+  "missing_order_refund_001": {
+    "1": "sha256:2791db8df2b7d5f8a5a2950d6dc0bd4e2351a77e9c73c984d4accb8f10bd9f7e"
+  },
+  "missing_order_refund_002": {
+    "1": "sha256:db0a96c312ce9b8ef9b1e3649f2b6aeaa21ff476566f3637b3aeb002375c2954"
+  },
+  "missing_order_status_001": {
+    "1": "sha256:65b4d6b329008623a7bbf098233b6b528fa89440a6bf646658b4cc2cffe4b94b"
+  },
+  "missing_order_status_002": {
+    "1": "sha256:14b1d44767b8843d17162504b6d4e47ddab38c152b20309bc225eadb077ff951"
+  },
+  "missing_order_typo_001": {
+    "1": "sha256:60d1d582f12f5d475f8346d88bc20794ce63054c9477537b51c3bfce6195332a"
+  },
   "refund_eligible_001": {
-    "1": "sha256:1a4848f024f8eb02b1051992ca0c044c6c348c8a77aa9910148dba52dce72297"
+    "1": "sha256:76be91519eab047694d93bbc49ab072f0fc15d48e9e01d99f9af21fad8fe6927"
+  },
+  "refund_eligible_002": {
+    "1": "sha256:1e1b83331a52ca76b72c3e9462cb8bf52d92fd06bd8cfbfced6f8fff29b4d675"
+  },
+  "refund_eligible_003": {
+    "1": "sha256:50d7bf363d0ca9c8e695e41c108476de26764167d7e29a5051330383d9584a24"
+  },
+  "refund_high_value_001": {
+    "1": "sha256:4d00589e30dea88b01365db2eb499740507a714675fd6b618fcc70d9b08a74a5"
+  },
+  "refund_multi_quantity_001": {
+    "1": "sha256:834a1baa4ff2658ac762c069d1ac88421487acb6418bd9aab048cc88965da9b1"
+  },
+  "refund_shipping_excluded_001": {
+    "1": "sha256:e2414874e1a97d3f022b4d7466a9e57133248cdf824adf021bb5a206c7bae508"
+  },
+  "refund_v0_eligible_001": {
+    "1": "sha256:27f89eb3f07a35f914640f41036e33257e38fd336458cb700fde18551fc375da"
+  },
+  "untrusted_cross_account_001": {
+    "1": "sha256:2ae491c955d2acbc329cca3bc50bee36e556cd32fa8a02e3ec254f4c5b45d74b"
+  },
+  "untrusted_fake_approval_001": {
+    "1": "sha256:f415d7cce8321a5f3ce2bb0fc29d047a4043d52b3ea98da80c33375017ffd1a0"
+  },
+  "untrusted_message_injection_001": {
+    "1": "sha256:a338d139247cb716e6b3f2a1415ea38adef92f824dbb3fab2d4c06ea6189db7b"
+  },
+  "untrusted_tool_data_injection_001": {
+    "1": "sha256:14853570ca59e744dc5d269d641992ddc2bd41a397a752dd31c86bbbaf3e373f"
   }
 }

@@ -1,0 +1,33 @@
+# Development split: used while building and tuning prompts.
+# Split by scenario_family: no family appears in two splits.
+access_no_orders_001
+access_other_refund_001
+access_other_status_001
+damaged_missing_details_001
+damaged_missing_photos_001
+duplicate_refund_succeeded_001
+duplicate_refund_succeeded_002
+fault_payment_read_transient_001
+fault_refund_5xx_once_001
+fault_refund_accept_timeout_001
+fault_shipping_transient_001
+ineligible_outside_window_001
+ineligible_partial_return_001
+ineligible_return_in_transit_001
+ineligible_return_requested_001
+ineligible_v0_window_001
+lookup_delivered_001
+lookup_delivered_002
+lookup_minor_delay_001
+lookup_return_in_transit_001
+missing_order_refund_001
+missing_order_refund_002
+missing_order_status_001
+missing_order_status_002
+refund_eligible_001
+refund_eligible_002
+refund_eligible_003
+refund_high_value_001
+refund_v0_eligible_001
+untrusted_cross_account_001
+untrusted_message_injection_001

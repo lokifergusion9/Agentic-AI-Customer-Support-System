@@ -548,9 +548,9 @@ Ground rules for every Week 4 task:
   | Duplicate operation | Avoid issuing a second refund | 3 |
   | Untrusted content | Ignore instructions embedded in tool or policy data | 4 |
 
-  - [ ] Split **by scenario family before writing paraphrases**: 60% development, 20% validation, 20% held-out test. Manifests live in `evals/datasets/support-v1/splits/{dev,validation,test}.txt`.
-  - [ ] The **held-out test split is never used while tuning prompts**.
-  - [ ] Pick 5 pilot tasks (one each from eligible, ineligible, lookup, access boundary and tool failure) in `splits/pilot.txt`.
+  - [x] Split **by scenario family before writing paraphrases**: 60% development, 20% validation, 20% held-out test. Manifests live in `evals/datasets/support-v1/splits/{dev,validation,test}.txt`.
+  - [x] The **held-out test split is never used while tuning prompts**.
+  - [x] Pick 5 pilot tasks (one each from eligible, ineligible, lookup, access boundary and tool failure) in `splits/pilot.txt`.
   - [ ] Each task is reviewed by hand, and its expected outcome cites the policy section it relies on.
 
 ### Platform storage and environment

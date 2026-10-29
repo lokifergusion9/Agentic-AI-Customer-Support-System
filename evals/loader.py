@@ -88,6 +88,21 @@ def load_dataset(dataset: str, *, require_locked: bool = True) -> list[LoadedTas
     return loaded
 
 
+def split_ids(dataset: str, split: str) -> list[str]:
+    """Task IDs listed in `<dataset>/splits/<split>.txt`, skipping comments."""
+    path = DATASETS / dataset / "splits" / f"{split}.txt"
+    lines = (line.strip() for line in path.read_text(encoding="utf-8").splitlines())
+    return [line for line in lines if line and not line.startswith("#")]
+
+
+def load_split(dataset: str, split: str) -> list[LoadedTask]:
+    wanted = split_ids(dataset, split)
+    by_id = {task.id: task for task in load_dataset(dataset)}
+    if missing := [task_id for task_id in wanted if task_id not in by_id]:
+        raise ValueError(f"{split} lists unknown tasks: {missing}")
+    return [by_id[task_id] for task_id in wanted]
+
+
 def lock_dataset(dataset: str) -> list[str]:
     """Record the hash of every unlocked task version. Locked versions are never rewritten."""
     dataset_dir = DATASETS / dataset

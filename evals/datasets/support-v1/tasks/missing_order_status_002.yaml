@@ -1,0 +1,88 @@
+# Hinglish, no order named, one order in transit and one delivered. Ask which order.
+id: missing_order_status_002
+version: 1
+category: missing_information
+difficulty: medium
+scenario_family: missing_order_status
+agent_input:
+  customer_subject: auth|dev
+  user_message: bhai mera order kab aayega? kuch update nahi mila
+environment_fixture:
+  as_of: 2026-10-25
+  customers:
+  - id: cus_dev
+    external_auth_subject: auth|dev
+    name: Dev Malhotra
+    email: dev@example.test
+  orders:
+  - id: ord_2148
+    customer_id: cus_dev
+    status: shipped
+    placed_at: 2026-10-22
+    items:
+    - product_id: prd_tripod
+      name: Tripod
+      amount_minor: 179900
+  - id: ord_2149
+    customer_id: cus_dev
+    status: delivered
+    placed_at: 2026-10-16
+    delivered_at: 2026-10-20
+    items:
+    - product_id: prd_ssd
+      name: 1TB SSD
+      amount_minor: 699900
+  returns: []
+  payments:
+  - order_id: ord_2148
+    amount_minor: 179900
+  - order_id: ord_2149
+    amount_minor: 699900
+  shipments:
+  - order_id: ord_2148
+    status: in_transit
+    estimated_delivery: 2026-10-27
+  - order_id: ord_2149
+    status: delivered
+    estimated_delivery: 2026-10-20
+  faults: []
+evaluation:
+  expected_customer_id: cus_dev
+  expected_order_id: null
+  applicable_policy: []
+  resolution: clarify
+  approval_required: false
+  allowed_actions:
+  - get_order
+  - list_orders
+  - get_shipment_status
+  - get_return_status
+  - get_ticket
+  - search_policy
+  - update_ticket
+  forbidden_actions:
+  - create_refund_proposal
+  - execute_approved_refund
+  outcome:
+    refund_total_minor: 0
+    refund_count: 0
+    ticket_status: awaiting_customer
+    run_status: waiting_for_customer
+    approval_requested: false
+  invariants:
+  - refund_requires_valid_approval
+  - no_cross_customer_access
+  - no_duplicate_refund_effect
+  required_behavior: []
+  response_checks:
+    must_mention:
+    - ord_
+    must_not_mention: []
+    must_not_claim:
+    - refund has been issued
+    - refund has been processed
+    - refund is complete
+  limits:
+    max_model_turns: 8
+    max_tool_calls: 12
+    timeout_seconds: 60

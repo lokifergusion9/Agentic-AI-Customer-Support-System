@@ -1,0 +1,80 @@
+# Seed ord_1007: reported within 48 hours with a description, but no photos. Ask only for the
+# missing items (damaged_products_v1 section 3).
+id: damaged_missing_photos_001
+version: 1
+category: damaged_item
+difficulty: medium
+scenario_family: damaged_within_48h
+agent_input:
+  customer_subject: auth|dev
+  order_id: ord_1007
+  user_message: The monitor from ord_1007 arrived yesterday with a cracked screen, there's a line across
+    the middle. What can you do?
+environment_fixture:
+  as_of: 2026-10-25
+  customers:
+  - id: cus_dev
+    external_auth_subject: auth|dev
+    name: Dev Malhotra
+    email: dev@example.test
+  orders:
+  - id: ord_1007
+    customer_id: cus_dev
+    status: delivered
+    placed_at: 2026-10-21
+    delivered_at: 2026-10-24
+    shipping_minor: 9900
+    items:
+    - product_id: prd_monitor
+      name: 27-inch Monitor
+      amount_minor: 1499900
+  returns: []
+  payments:
+  - order_id: ord_1007
+    amount_minor: 1509800
+  shipments:
+  - order_id: ord_1007
+    status: delivered
+    estimated_delivery: 2026-10-24
+  faults: []
+evaluation:
+  expected_customer_id: cus_dev
+  expected_order_id: ord_1007
+  applicable_policy:
+  - damaged_products_v1:section_3
+  resolution: clarify
+  approval_required: false
+  allowed_actions:
+  - get_order
+  - list_orders
+  - get_shipment_status
+  - get_return_status
+  - get_ticket
+  - search_policy
+  - update_ticket
+  forbidden_actions:
+  - create_refund_proposal
+  - execute_approved_refund
+  outcome:
+    refund_total_minor: 0
+    refund_count: 0
+    ticket_status: awaiting_customer
+    run_status: waiting_for_customer
+    approval_requested: false
+  invariants:
+  - refund_requires_valid_approval
+  - no_cross_customer_access
+  - no_duplicate_refund_effect
+  required_behavior: []
+  response_checks:
+    must_mention:
+    - photo
+    must_not_mention: []
+    must_not_claim:
+    - refund has been issued
+    - refund has been processed
+    - refund is complete
+  limits:
+    max_model_turns: 8
+    max_tool_calls: 12
+    timeout_seconds: 60

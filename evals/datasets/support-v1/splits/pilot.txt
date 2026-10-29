@@ -1,0 +1,7 @@
+# Pilot (E§4): one task each from eligible, ineligible, lookup, access boundary and tool
+# failure, all from the dev split. Run these first, with one configuration.
+refund_eligible_001
+ineligible_return_in_transit_001
+lookup_delivered_001
+access_other_refund_001
+fault_shipping_transient_001

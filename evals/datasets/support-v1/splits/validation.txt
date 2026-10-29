@@ -1,0 +1,11 @@
+# Validation split: checks a tuned configuration before it is compared.
+# Split by scenario_family: no family appears in two splits.
+access_unknown_order_001
+damaged_safety_risk_001
+damaged_safety_risk_002
+fault_payment_read_down_001
+ineligible_inspection_failed_001
+lookup_not_received_001
+missing_order_generic_001
+refund_multi_quantity_001
+untrusted_fake_approval_001

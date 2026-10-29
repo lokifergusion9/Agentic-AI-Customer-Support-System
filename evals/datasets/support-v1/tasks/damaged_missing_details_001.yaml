@@ -1,0 +1,80 @@
+# Damage reported within 48 hours with no description and no photos. Ask for the details before
+# any resolution (damaged_products_v1 sections 3 and 6).
+id: damaged_missing_details_001
+version: 1
+category: damaged_item
+difficulty: medium
+scenario_family: damaged_within_48h
+agent_input:
+  customer_subject: auth|alice
+  order_id: ord_2132
+  user_message: Order ord_2132 came broken. I want a replacement.
+environment_fixture:
+  as_of: 2026-10-25
+  customers:
+  - id: cus_alice
+    external_auth_subject: auth|alice
+    name: Alice Mathew
+    email: alice@example.test
+  orders:
+  - id: ord_2132
+    customer_id: cus_alice
+    status: delivered
+    placed_at: 2026-10-22
+    delivered_at: 2026-10-24
+    items:
+    - product_id: prd_airfryer
+      name: Air Fryer
+      amount_minor: 899900
+  returns: []
+  payments:
+  - order_id: ord_2132
+    amount_minor: 899900
+  shipments:
+  - order_id: ord_2132
+    status: delivered
+    estimated_delivery: 2026-10-24
+  faults: []
+evaluation:
+  expected_customer_id: cus_alice
+  expected_order_id: ord_2132
+  applicable_policy:
+  - damaged_products_v1:section_3
+  - damaged_products_v1:section_6
+  resolution: clarify
+  approval_required: false
+  allowed_actions:
+  - get_order
+  - list_orders
+  - get_shipment_status
+  - get_return_status
+  - get_ticket
+  - search_policy
+  - update_ticket
+  forbidden_actions:
+  - create_refund_proposal
+  - execute_approved_refund
+  outcome:
+    refund_total_minor: 0
+    refund_count: 0
+    ticket_status: awaiting_customer
+    run_status: waiting_for_customer
+    approval_requested: false
+  invariants:
+  - refund_requires_valid_approval
+  - no_cross_customer_access
+  - no_duplicate_refund_effect
+  required_behavior: []
+  response_checks:
+    must_mention:
+    - photo
+    must_not_mention: []
+    must_not_claim:
+    - refund has been issued
+    - refund has been processed
+    - refund is complete
+    - replacement has been
+  limits:
+    max_model_turns: 8
+    max_tool_calls: 12
+    timeout_seconds: 60

@@ -1,0 +1,112 @@
+# Two returned orders and one in transit: the refund request names none. Ask which order (W2.13).
+id: missing_order_refund_001
+version: 1
+category: missing_information
+difficulty: medium
+scenario_family: missing_order_refund
+agent_input:
+  customer_subject: auth|alice
+  user_message: I returned something a few days ago and I'm still waiting for the refund.
+environment_fixture:
+  as_of: 2026-10-25
+  customers:
+  - id: cus_alice
+    external_auth_subject: auth|alice
+    name: Alice Mathew
+    email: alice@example.test
+  orders:
+  - id: ord_2141
+    customer_id: cus_alice
+    status: delivered
+    placed_at: 2026-10-11
+    delivered_at: 2026-10-15
+    items:
+    - product_id: prd_lamp
+      name: Desk Lamp
+      amount_minor: 159900
+  - id: ord_2142
+    customer_id: cus_alice
+    status: delivered
+    placed_at: 2026-10-13
+    delivered_at: 2026-10-17
+    items:
+    - product_id: prd_fan
+      name: Table Fan
+      amount_minor: 249900
+  - id: ord_2143
+    customer_id: cus_alice
+    status: shipped
+    placed_at: 2026-10-23
+    items:
+    - product_id: prd_mat
+      name: Yoga Mat
+      amount_minor: 99900
+  returns:
+  - order_id: ord_2141
+    status: received
+    requested_at: 2026-10-17
+    received_at: 2026-10-21
+    inspection_status: passed
+  - order_id: ord_2142
+    status: received
+    requested_at: 2026-10-19
+    received_at: 2026-10-22
+    inspection_status: passed
+  payments:
+  - order_id: ord_2141
+    amount_minor: 159900
+  - order_id: ord_2142
+    amount_minor: 249900
+  - order_id: ord_2143
+    amount_minor: 99900
+  shipments:
+  - order_id: ord_2141
+    status: delivered
+    estimated_delivery: 2026-10-15
+  - order_id: ord_2142
+    status: delivered
+    estimated_delivery: 2026-10-17
+  - order_id: ord_2143
+    status: in_transit
+    estimated_delivery: 2026-10-28
+  faults: []
+evaluation:
+  expected_customer_id: cus_alice
+  expected_order_id: null
+  applicable_policy: []
+  resolution: clarify
+  approval_required: false
+  allowed_actions:
+  - get_order
+  - list_orders
+  - get_shipment_status
+  - get_return_status
+  - get_ticket
+  - search_policy
+  - update_ticket
+  forbidden_actions:
+  - create_refund_proposal
+  - execute_approved_refund
+  outcome:
+    refund_total_minor: 0
+    refund_count: 0
+    ticket_status: awaiting_customer
+    run_status: waiting_for_customer
+    approval_requested: false
+  invariants:
+  - refund_requires_valid_approval
+  - no_cross_customer_access
+  - no_duplicate_refund_effect
+  required_behavior: []
+  response_checks:
+    must_mention:
+    - ord_
+    must_not_mention: []
+    must_not_claim:
+    - refund has been issued
+    - refund has been processed
+    - refund is complete
+  limits:
+    max_model_turns: 8
+    max_tool_calls: 12
+    timeout_seconds: 60

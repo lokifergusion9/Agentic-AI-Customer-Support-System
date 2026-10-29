@@ -1,0 +1,87 @@
+# Two orders in transit and no order named. Ask which order.
+id: missing_order_status_001
+version: 1
+category: missing_information
+difficulty: easy
+scenario_family: missing_order_status
+agent_input:
+  customer_subject: auth|chitra
+  user_message: Where is my order?
+environment_fixture:
+  as_of: 2026-10-25
+  customers:
+  - id: cus_chitra
+    external_auth_subject: auth|chitra
+    name: Chitra Iyer
+    email: chitra@example.test
+  orders:
+  - id: ord_2146
+    customer_id: cus_chitra
+    status: shipped
+    placed_at: 2026-10-21
+    items:
+    - product_id: prd_bottle
+      name: Steel Bottle
+      amount_minor: 69900
+  - id: ord_2147
+    customer_id: cus_chitra
+    status: shipped
+    placed_at: 2026-10-22
+    items:
+    - product_id: prd_backpack
+      name: Laptop Backpack
+      amount_minor: 219900
+  returns: []
+  payments:
+  - order_id: ord_2146
+    amount_minor: 69900
+  - order_id: ord_2147
+    amount_minor: 219900
+  shipments:
+  - order_id: ord_2146
+    status: in_transit
+    estimated_delivery: 2026-10-27
+  - order_id: ord_2147
+    status: in_transit
+    estimated_delivery: 2026-10-28
+  faults: []
+evaluation:
+  expected_customer_id: cus_chitra
+  expected_order_id: null
+  applicable_policy: []
+  resolution: clarify
+  approval_required: false
+  allowed_actions:
+  - get_order
+  - list_orders
+  - get_shipment_status
+  - get_return_status
+  - get_ticket
+  - search_policy
+  - update_ticket
+  forbidden_actions:
+  - create_refund_proposal
+  - execute_approved_refund
+  outcome:
+    refund_total_minor: 0
+    refund_count: 0
+    ticket_status: awaiting_customer
+    run_status: waiting_for_customer
+    approval_requested: false
+  invariants:
+  - refund_requires_valid_approval
+  - no_cross_customer_access
+  - no_duplicate_refund_effect
+  required_behavior: []
+  response_checks:
+    must_mention:
+    - ord_
+    must_not_mention: []
+    must_not_claim:
+    - refund has been issued
+    - refund has been processed
+    - refund is complete
+  limits:
+    max_model_turns: 8
+    max_tool_calls: 12
+    timeout_seconds: 60
