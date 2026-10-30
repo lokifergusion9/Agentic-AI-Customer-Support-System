@@ -4,6 +4,7 @@
 
 **An AI agent that takes a complaint from *"where is my refund?"* to a *verified* outcome,<br>and an evaluation platform that proves whether it deserves your trust.**
 
+[![CI](https://github.com/lokifergusion9/Agentic-AI-Customer-Support-System/actions/workflows/ci.yml/badge.svg)](https://github.com/lokifergusion9/Agentic-AI-Customer-Support-System/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
 ![LangGraph](https://img.shields.io/badge/LangGraph-workflow-1C3C3C)
 ![FastAPI](https://img.shields.io/badge/FastAPI-API-009688?logo=fastapi&logoColor=white)
