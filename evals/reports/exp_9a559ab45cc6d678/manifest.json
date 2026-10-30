@@ -1,0 +1,164 @@
+{
+  "configs": {
+    "lite_single_v1": {
+      "adapter": "langgraph",
+      "architecture": "single",
+      "config_hash": "sha256:4931fefd1e38c2f9fcaf5efad4517440ebffec09c1fbb949ba1b1ac27deb5e56",
+      "limits": {
+        "max_output_tokens": 2048,
+        "max_retries": 2,
+        "max_steps": 25,
+        "max_tokens": 50000,
+        "temperature": 0.0
+      },
+      "model_id": "gemini-3.5-flash-lite",
+      "prompt_hashes": {
+        "classifier": "f90f034d8cf7487bdd51fef1c2dcc6fe522ebe9bbdd6e53dad4a745dc837258e",
+        "single_agent": "dd44f559c22df001637a7af4cb1a6208d83b7b549605d724d98f70795b93482c"
+      },
+      "prompt_version": "v1",
+      "provider": "gemini",
+      "resolved_model_ids": [
+        "gemini-3.5-flash-lite"
+      ],
+      "tool_schema_hash": "sha256:a8b8da48a057fe92ed3db149ae235018dd0a39e7f3dbd5679e1f72902bd2cb1c"
+    },
+    "lite_specialist_v1": {
+      "adapter": "langgraph",
+      "architecture": "specialist",
+      "config_hash": "sha256:12cf1afdd904d2496a8d2ddd62afd5b3a61eabbc35551cf6a4aa377d8918df80",
+      "limits": {
+        "max_output_tokens": 2048,
+        "max_retries": 2,
+        "max_steps": 25,
+        "max_tokens": 50000,
+        "temperature": 0.0
+      },
+      "model_id": "gemini-3.5-flash-lite",
+      "prompt_hashes": {
+        "classifier": "f90f034d8cf7487bdd51fef1c2dcc6fe522ebe9bbdd6e53dad4a745dc837258e",
+        "investigation": "2f3ede8b1f209a3bfc4594eee405b055aa49a3a4238e34a23c47e13ad2620e2d",
+        "policy": "0bcf6187736369785f3389b0814ef45db3c1c5707210b465df2fda19029c5d16",
+        "resolution": "2e8a601216241ce631c248bb06aee7aabace276dff75793e69c3f94ec7a25acc"
+      },
+      "prompt_version": "v1",
+      "provider": "gemini",
+      "resolved_model_ids": [
+        "gemini-3.5-flash-lite"
+      ],
+      "tool_schema_hash": "sha256:a8b8da48a057fe92ed3db149ae235018dd0a39e7f3dbd5679e1f72902bd2cb1c"
+    }
+  },
+  "experiment": {
+    "dataset_hash": "sha256:ac4115b0ff54a90eccec32bd9282867b3c76e82f8d42a7c01c78db78edb064fe",
+    "dataset_version": "support-v1",
+    "id": "exp_9a559ab45cc6d678",
+    "idempotency_key": "repetitions-v1",
+    "name": "repetitions",
+    "repetitions": 3,
+    "split": "validation",
+    "status": "completed"
+  },
+  "fault_configuration": {
+    "fault_payment_read_down_001": [
+      {
+        "kind": "http_5xx",
+        "on_call": 1,
+        "operation": "payments.get_payment",
+        "order_id": "ord_2173",
+        "times": 10
+      }
+    ]
+  },
+  "manifest": {
+    "code_commit": "05bb063c419539d250754cdebe88f61b2e1b58ea",
+    "configs": {
+      "lite_single_v1": {
+        "config_hash": "sha256:4931fefd1e38c2f9fcaf5efad4517440ebffec09c1fbb949ba1b1ac27deb5e56",
+        "model_id": "gemini-3.5-flash-lite"
+      },
+      "lite_specialist_v1": {
+        "config_hash": "sha256:12cf1afdd904d2496a8d2ddd62afd5b3a61eabbc35551cf6a4aa377d8918df80",
+        "model_id": "gemini-3.5-flash-lite"
+      }
+    },
+    "dataset_version": {
+      "content_hash": "sha256:ac4115b0ff54a90eccec32bd9282867b3c76e82f8d42a7c01c78db78edb064fe",
+      "id": "support-v1"
+    },
+    "environment_version": "1",
+    "evaluator_versions": {
+      "outcome": "1.0.0",
+      "policy": "1.0.0",
+      "response": "1.0.0",
+      "trajectory": "1.1.0"
+    },
+    "limits": {
+      "access_unknown_order_001": {
+        "max_model_turns": 8,
+        "max_tool_calls": 12,
+        "timeout_seconds": 60
+      },
+      "damaged_safety_risk_001": {
+        "max_model_turns": 8,
+        "max_tool_calls": 12,
+        "timeout_seconds": 60
+      },
+      "damaged_safety_risk_002": {
+        "max_model_turns": 8,
+        "max_tool_calls": 12,
+        "timeout_seconds": 60
+      },
+      "fault_payment_read_down_001": {
+        "max_model_turns": 12,
+        "max_tool_calls": 20,
+        "timeout_seconds": 120
+      },
+      "ineligible_inspection_failed_001": {
+        "max_model_turns": 12,
+        "max_tool_calls": 20,
+        "timeout_seconds": 90
+      },
+      "lookup_not_received_001": {
+        "max_model_turns": 8,
+        "max_tool_calls": 12,
+        "timeout_seconds": 60
+      },
+      "missing_order_generic_001": {
+        "max_model_turns": 8,
+        "max_tool_calls": 12,
+        "timeout_seconds": 60
+      },
+      "refund_high_value_001": {
+        "max_model_turns": 12,
+        "max_tool_calls": 20,
+        "timeout_seconds": 90
+      },
+      "refund_multi_quantity_001": {
+        "max_model_turns": 12,
+        "max_tool_calls": 20,
+        "timeout_seconds": 90
+      },
+      "untrusted_fake_approval_001": {
+        "max_model_turns": 12,
+        "max_tool_calls": 20,
+        "timeout_seconds": 90
+      }
+    },
+    "lockfile_hash": "sha256:f87b5f1d5575572d3f9a29200c331af2b565c1d8306558a005236698f7f77b95",
+    "repetitions": 3,
+    "split": "validation",
+    "tasks": {
+      "access_unknown_order_001": "sha256:58b268515acbfc413dd66358e1122ffe088e14b7634dab64485083b817a2165f",
+      "damaged_safety_risk_001": "sha256:f2617cc430e07649a175baf0be05b9588567f87219f2e6a71d0291b9efbe11a1",
+      "damaged_safety_risk_002": "sha256:e7c77b31846b4b9e8d0ddb5d0f53d58fc446e8d7e09137433fa2553959c60326",
+      "fault_payment_read_down_001": "sha256:492adfe9f4e60ebf35c2efca93423c797cce8a50046ff0fea3e7a9bc6da7a934",
+      "ineligible_inspection_failed_001": "sha256:794bd552d7b8f220ef57ba7fbeddde3fcb13ecca9beea461c3794fda9bf21a75",
+      "lookup_not_received_001": "sha256:e7db367a5158fc36a6a9c949b25e1113d507ad32f213a257f7424622667eeda6",
+      "missing_order_generic_001": "sha256:385bc72a787d9b05a973511b5e842ec1e79f7dfcd0b6b7020aa1de4363bbbebb",
+      "refund_high_value_001": "sha256:4d00589e30dea88b01365db2eb499740507a714675fd6b618fcc70d9b08a74a5",
+      "refund_multi_quantity_001": "sha256:834a1baa4ff2658ac762c069d1ac88421487acb6418bd9aab048cc88965da9b1",
+      "untrusted_fake_approval_001": "sha256:f415d7cce8321a5f3ce2bb0fc29d047a4043d52b3ea98da80c33375017ffd1a0"
+    }
+  }
+}

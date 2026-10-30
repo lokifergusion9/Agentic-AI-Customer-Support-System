@@ -534,7 +534,7 @@ Ground rules for every Week 4 task:
   - [x] The `evaluation` block covers every expected-outcome field from the original §15 list: relevant customer and order, applicable policy, allowed and forbidden actions, whether approval is required, expected final business state, and expected escalation or clarification.
   - [x] Each task version gets a content hash, and a changed task gets a new version, never an edit.
   - [x] Clarification tasks are single-turn: success means the run stops in `awaiting_customer` with a targeted question and no side effects.
-- [ ] **W4.2 — Dataset `support-v1`, 50 reviewed tasks** (E§9, §15). Start from the 15 seeded scenarios of W1.2 and vary them meaningfully (return status, existing refunds, ownership, approval outcome, missing fields, fault timing, phrasing, tool dependencies), not with near-identical paraphrases:
+- [x] **W4.2 — Dataset `support-v1`, 50 reviewed tasks** (E§9, §15). Start from the 15 seeded scenarios of W1.2 and vary them meaningfully (return status, existing refunds, ownership, approval outcome, missing fields, fault timing, phrasing, tool dependencies), not with near-identical paraphrases:
 
   | Category | Example | Tasks |
   |---|---|---|
@@ -551,7 +551,7 @@ Ground rules for every Week 4 task:
   - [x] Split **by scenario family before writing paraphrases**: 60% development, 20% validation, 20% held-out test. Manifests live in `evals/datasets/support-v1/splits/{dev,validation,test}.txt`.
   - [x] The **held-out test split is never used while tuning prompts**.
   - [x] Pick 5 pilot tasks (one each from eligible, ineligible, lookup, access boundary and tool failure) in `splits/pilot.txt`.
-  - [ ] Each task is reviewed by hand, and its expected outcome cites the policy section it relies on.
+  - [x] Each task is reviewed by hand, and its expected outcome cites the policy section it relies on. (Reviewed by the user, 2026-10-30.)
 
 ### Platform storage and environment
 
@@ -651,6 +651,8 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
 
 ## Week 5 — Comparison, reporting and presentation (Project_2.pdf + §16–§19)
 
+> **Resume here (2026-10-30, evening):** 69 of 74 tasks are ticked (W4.2 ticked today after the user's review). Open: W5.2, W5.7, W5.9, W5.11, W5.12, plus the 26-item final checklist. **Experiments:** main `exp_c6c886a14af3ffc6` 150/150 done; repetitions `exp_9a559ab45cc6d678` 60/60 done; final test `exp_d580a81b47a3fd20` (30 runs) running, 8 done when last checked; Flash comparison `exp_0cdb09b5f180fe0c` 1/10 done, the Flash daily limit is hit, so it resumes each day after 12:35 IST (07:05 UTC), about 3 runs a day, done around 3 November. **Next steps, in order:** (1) start Docker if it is down (`docker compose up -d postgres`, `--profile mocks up -d`), then run `DATABASE_URL=<.env URL with /support_eval> uv run python -m evals.run_evals work` (no `--drain`) in the background; (2) check `status <experiment_id>` for the final test and the Flash comparison; (3) when both finish, stop the worker and run Demo E (`uv run python -m scripts.dev demo e`; it resets the environment, so never while the worker runs); (4) export the reports (`python -m evals.reports export <id>`) and fill README item 7 (measured results) and item 9 (demo link); (5) fill the résumé placeholders (W5.12); (6) verify and tick the final checklist; (7) the user records the demo (W5.11); commits and pushes are the user's. **Results so far (record them with their conditions):** main, 50 tasks, 1 repetition: `lite_specialist_v1` 84% (42/50), `lite_single_v1` 76% (38/50), `lite_specialist_v2` 70% (35/50); v1 to v2 improved 2, regressed 9 (sign test p=0.065); single to specialist improved 7, regressed 3 (p=0.34); 0 unsafe attempts and 0 duplicate refunds in all three. Repetitions, validation split (10 tasks × 3): single 63% (19/30), specialist v1 57% (17/30), so the ordering of single and specialist flips against the main run: do **not** claim the specialist is better. The test tasks were also part of the main run (`split: all`), so say that wherever "held-out" is used.
+>
 > **Progress (2026-10-29):** done and committed: W5.1, W5.3, W5.4, W5.5, W5.6, W5.8, W5.10. **Half done:** W5.2 (configs, plans, quota deferral built; the pilot has run, main/repetitions/model comparison still to run). **Half done:** W5.7 (Demos A to D built and run; E waits for real experiments). **Mostly done:** W5.9 README (measured results and the demo link wait for the experiments and the recording). **Not started:** W5.11 recording, W5.12 résumé entry. W5.11 and W5.12 need real measured results and the user's own recording, so they cannot be completed by code alone. Nothing from Week 4 or 5 has been pushed.
 
 **Done when:** another developer can run the project and **reproduce your reported results** (§16), and you can name the exact tasks that improved or regressed between two configurations (E§27 phase 5).
