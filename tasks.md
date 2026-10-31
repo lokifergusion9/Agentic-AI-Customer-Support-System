@@ -802,6 +802,12 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
 
   Do not describe synthetic test results as production performance, and never quote a number without its dataset, metric, sample size and conditions.
 
+  **Draft (2026-10-31), final after the Flash comparison finishes.** Every number below comes from the exported reports in `evals/reports/`:
+  > Built an evaluation platform for it with isolated per-attempt environments, tool-call tracing and deterministic outcome, policy, trajectory and response checks; compared three Gemini Flash-Lite agent configurations (single agent, specialist agents, and a second specialist prompt) on 50 versioned synthetic scenarios, with 3 repetitions on a 10-task validation split.
+  > Specialist design verified 42/50 (84%) tasks vs 38/50 (76%) for the single agent on one run (7 tasks improved, 3 regressed, p = 0.34, not significant, and the order reversed on the repeated validation split: 57% vs 63%); trace-based comparison showed the second prompt regressing 9 tasks to improving 2 (84% to 70%), five of the nine in missing-information and damaged-item cases, and caught one executed policy violation; no duplicate refunds in any of 240 runs.
+  >
+  > Not used, on purpose: "held-out accuracy" (the 10 test tasks were also in the main run, and 10 tasks are too few), any claim that the specialist design is better, and any cost figure (no registered prices, so cost is unknown). Add the Flash result (`exp_0cdb09b5f180fe0c`, 10 validation tasks) when it finishes. The 240 runs are 150 main + 60 repetitions + 30 final test.
+
 **Gate check:**
 
 1. On a fresh clone, `make setup migrate seed smoke` reproduces the scripted results with **no API key**.
@@ -813,33 +819,35 @@ For runs outside the tests (`python -m evals.run_evals create|work|status`), reb
 
 Confirm before sharing the project. Tasks that satisfy each item are in brackets.
 
-- [ ] Customer access is derived from authenticated identity. [W1.5, W2.5]
-- [ ] Order ownership is checked server-side. [W1.12]
-- [ ] Policies have versions and citations. [W1.1, W2.1, W2.2]
-- [ ] Model outputs use validated schemas. [W2.7, W2.15]
-- [ ] Financial eligibility is enforced in code. [W1.14, W2.12]
-- [ ] Refunds require approval bound to an exact proposal. [W3.1, W3.2, W3.7]
-- [ ] Expired or changed proposals require fresh approval. [W3.6]
-- [ ] Retries and concurrent requests cannot duplicate refunds. [W1.4, W3.9, W3.10]
-- [ ] Unknown payment outcomes trigger reconciliation. [W3.9, W3.12]
-- [ ] Ticket updates reflect verified external status. [W3.11, W3.14]
-- [ ] Workflow state survives a restart. [W3.3, W3.13]
-- [ ] Evaluation checks business state, not just response text. [W4.4, W4.9]
-- [ ] Results distinguish automated and human-assisted resolution. [W5.1]
-- [ ] The README documents scope, tradeoffs, and limitations. [P0.5, W5.9]
+Checked 2026-10-31 against the code and tests (CI is green on `main`: the full suite and ruff on a clean pgvector database). Evidence: identity and ownership `tests/integration/test_customer_auth.py`, `test_read_services.py`, `test_tools.py`; approvals and proposals `test_approvals.py`, `test_workflow.py`; concurrency and recovery `test_refund_concurrency.py`, `test_recovery.py`, `tests/failure_scenarios/`; the evaluation platform `tests/evals/` (agent and evaluator views in `test_task_format.py`, clean attempts in `tests/integration/test_eval_environment.py`, agent failures never retried and infrastructure retries in a new environment in `test_experiment_execution.py`, unsafe attempts vs executed violations and unknown usage in `test_metrics.py`, rerun from a manifest in `test_reports.py`). The task numbers in brackets for the evaluation items come from the older numbering. **Held-out caveat:** no prompt was tuned after any result was read (prompt v2 was written before the first run and both are frozen), but the main run included the 10 test tasks. **Still open:** the scripted-mode check on a fresh clone (`make setup migrate seed smoke`), which resets the evaluation environment and so waits for the worker to finish, and the résumé numbers (W5.12).
+
+- [x] Customer access is derived from authenticated identity. [W1.5, W2.5]
+- [x] Order ownership is checked server-side. [W1.12]
+- [x] Policies have versions and citations. [W1.1, W2.1, W2.2]
+- [x] Model outputs use validated schemas. [W2.7, W2.15]
+- [x] Financial eligibility is enforced in code. [W1.14, W2.12]
+- [x] Refunds require approval bound to an exact proposal. [W3.1, W3.2, W3.7]
+- [x] Expired or changed proposals require fresh approval. [W3.6]
+- [x] Retries and concurrent requests cannot duplicate refunds. [W1.4, W3.9, W3.10]
+- [x] Unknown payment outcomes trigger reconciliation. [W3.9, W3.12]
+- [x] Ticket updates reflect verified external status. [W3.11, W3.14]
+- [x] Workflow state survives a restart. [W3.3, W3.13]
+- [x] Evaluation checks business state, not just response text. [W4.4, W4.9]
+- [x] Results distinguish automated and human-assisted resolution. [W5.1]
+- [x] The README documents scope, tradeoffs, and limitations. [P0.5, W5.9]
 
 Evaluation platform (E§28, E§32):
 
-- [ ] The agent never receives expected outcomes, hidden fixtures or grading rules. [W4.1, W4.3]
-- [ ] Every attempt starts from a clean, isolated environment. [W4.4]
-- [ ] A blocked unsafe attempt and an executed violation are reported separately. [W3.15, W4.9]
-- [ ] Execution status and evaluation status are separate; evaluator errors never become passes or agent failures. [W4.8, W4.9]
-- [ ] Agent failures are never retried until they pass; infrastructure retries get a fresh environment. [W4.8]
-- [ ] Every metric states its denominator, and coverage is shown next to success. [W5.1]
-- [ ] Missing token usage is reported as unknown, and estimated cost is labeled as an estimate. [W2.16, W5.1]
-- [ ] Comparisons use the same tasks, environment, limits, reviewer behavior and faults. [W4.4, W5.2, W5.3]
-- [ ] The held-out test split was never used while tuning prompts. [W4.2, W5.2]
-- [ ] Every reported experiment can be rerun from its saved manifest. [W5.5]
+- [x] The agent never receives expected outcomes, hidden fixtures or grading rules. [W4.1, W4.3]
+- [x] Every attempt starts from a clean, isolated environment. [W4.4]
+- [x] A blocked unsafe attempt and an executed violation are reported separately. [W3.15, W4.9]
+- [x] Execution status and evaluation status are separate; evaluator errors never become passes or agent failures. [W4.8, W4.9]
+- [x] Agent failures are never retried until they pass; infrastructure retries get a fresh environment. [W4.8]
+- [x] Every metric states its denominator, and coverage is shown next to success. [W5.1]
+- [x] Missing token usage is reported as unknown, and estimated cost is labeled as an estimate. [W2.16, W5.1]
+- [x] Comparisons use the same tasks, environment, limits, reviewer behavior and faults. [W4.4, W5.2, W5.3]
+- [x] The held-out test split was never used while tuning prompts. [W4.2, W5.2]
+- [x] Every reported experiment can be rerun from its saved manifest. [W5.5]
 - [ ] The platform can be verified in scripted mode without an API key. [W4.6, W5.8, W5.9]
 - [ ] Résumé numbers name their dataset, metric, sample size and conditions. [W5.12]
 
