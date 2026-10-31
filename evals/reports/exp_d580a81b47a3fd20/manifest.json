@@ -1,0 +1,193 @@
+{
+  "configs": {
+    "lite_single_v1": {
+      "adapter": "langgraph",
+      "architecture": "single",
+      "config_hash": "sha256:4931fefd1e38c2f9fcaf5efad4517440ebffec09c1fbb949ba1b1ac27deb5e56",
+      "limits": {
+        "max_output_tokens": 2048,
+        "max_retries": 2,
+        "max_steps": 25,
+        "max_tokens": 50000,
+        "temperature": 0.0
+      },
+      "model_id": "gemini-3.5-flash-lite",
+      "prompt_hashes": {
+        "classifier": "f90f034d8cf7487bdd51fef1c2dcc6fe522ebe9bbdd6e53dad4a745dc837258e",
+        "single_agent": "dd44f559c22df001637a7af4cb1a6208d83b7b549605d724d98f70795b93482c"
+      },
+      "prompt_version": "v1",
+      "provider": "gemini",
+      "resolved_model_ids": [
+        "gemini-3.5-flash-lite"
+      ],
+      "tool_schema_hash": "sha256:a8b8da48a057fe92ed3db149ae235018dd0a39e7f3dbd5679e1f72902bd2cb1c"
+    },
+    "lite_specialist_v1": {
+      "adapter": "langgraph",
+      "architecture": "specialist",
+      "config_hash": "sha256:12cf1afdd904d2496a8d2ddd62afd5b3a61eabbc35551cf6a4aa377d8918df80",
+      "limits": {
+        "max_output_tokens": 2048,
+        "max_retries": 2,
+        "max_steps": 25,
+        "max_tokens": 50000,
+        "temperature": 0.0
+      },
+      "model_id": "gemini-3.5-flash-lite",
+      "prompt_hashes": {
+        "classifier": "f90f034d8cf7487bdd51fef1c2dcc6fe522ebe9bbdd6e53dad4a745dc837258e",
+        "investigation": "2f3ede8b1f209a3bfc4594eee405b055aa49a3a4238e34a23c47e13ad2620e2d",
+        "policy": "0bcf6187736369785f3389b0814ef45db3c1c5707210b465df2fda19029c5d16",
+        "resolution": "2e8a601216241ce631c248bb06aee7aabace276dff75793e69c3f94ec7a25acc"
+      },
+      "prompt_version": "v1",
+      "provider": "gemini",
+      "resolved_model_ids": [
+        "gemini-3.5-flash-lite"
+      ],
+      "tool_schema_hash": "sha256:a8b8da48a057fe92ed3db149ae235018dd0a39e7f3dbd5679e1f72902bd2cb1c"
+    },
+    "lite_specialist_v2": {
+      "adapter": "langgraph",
+      "architecture": "specialist",
+      "config_hash": "sha256:a3a1dbc87f00c63b50e98ab24474b13324774710df9dc6e3c317873dd0e25fc3",
+      "limits": {
+        "max_output_tokens": 2048,
+        "max_retries": 2,
+        "max_steps": 25,
+        "max_tokens": 50000,
+        "temperature": 0.0
+      },
+      "model_id": "gemini-3.5-flash-lite",
+      "prompt_hashes": {
+        "classifier": "f90f034d8cf7487bdd51fef1c2dcc6fe522ebe9bbdd6e53dad4a745dc837258e",
+        "investigation": "4a025f5ac9fe15ab1c9b7ac5d7450eda92f511060c31ce6348921cc8973fe60b",
+        "policy": "0bcf6187736369785f3389b0814ef45db3c1c5707210b465df2fda19029c5d16",
+        "resolution": "99fc5f6c3209361e9d255cc733af387dd73e1587d6b199dc1b20487727d97197"
+      },
+      "prompt_version": "v2",
+      "provider": "gemini",
+      "resolved_model_ids": [
+        "gemini-3.5-flash-lite"
+      ],
+      "tool_schema_hash": "sha256:a8b8da48a057fe92ed3db149ae235018dd0a39e7f3dbd5679e1f72902bd2cb1c"
+    }
+  },
+  "experiment": {
+    "dataset_hash": "sha256:ac4115b0ff54a90eccec32bd9282867b3c76e82f8d42a7c01c78db78edb064fe",
+    "dataset_version": "support-v1",
+    "id": "exp_d580a81b47a3fd20",
+    "idempotency_key": "final-test-v1",
+    "name": "final-test",
+    "repetitions": 1,
+    "split": "test",
+    "status": "completed"
+  },
+  "fault_configuration": {
+    "fault_ticket_update_001": [
+      {
+        "kind": "http_5xx",
+        "on_call": 1,
+        "operation": "ticketing.update_ticket",
+        "order_id": null,
+        "times": 1
+      }
+    ]
+  },
+  "manifest": {
+    "code_commit": "05bb063c419539d250754cdebe88f61b2e1b58ea",
+    "configs": {
+      "lite_single_v1": {
+        "config_hash": "sha256:4931fefd1e38c2f9fcaf5efad4517440ebffec09c1fbb949ba1b1ac27deb5e56",
+        "model_id": "gemini-3.5-flash-lite"
+      },
+      "lite_specialist_v1": {
+        "config_hash": "sha256:12cf1afdd904d2496a8d2ddd62afd5b3a61eabbc35551cf6a4aa377d8918df80",
+        "model_id": "gemini-3.5-flash-lite"
+      },
+      "lite_specialist_v2": {
+        "config_hash": "sha256:a3a1dbc87f00c63b50e98ab24474b13324774710df9dc6e3c317873dd0e25fc3",
+        "model_id": "gemini-3.5-flash-lite"
+      }
+    },
+    "dataset_version": {
+      "content_hash": "sha256:ac4115b0ff54a90eccec32bd9282867b3c76e82f8d42a7c01c78db78edb064fe",
+      "id": "support-v1"
+    },
+    "environment_version": "1",
+    "evaluator_versions": {
+      "outcome": "1.0.0",
+      "policy": "1.0.0",
+      "response": "1.0.0",
+      "trajectory": "1.1.0"
+    },
+    "limits": {
+      "access_impersonation_001": {
+        "max_model_turns": 8,
+        "max_tool_calls": 12,
+        "timeout_seconds": 60
+      },
+      "damaged_late_report_001": {
+        "max_model_turns": 8,
+        "max_tool_calls": 12,
+        "timeout_seconds": 60
+      },
+      "duplicate_refund_pending_001": {
+        "max_model_turns": 8,
+        "max_tool_calls": 12,
+        "timeout_seconds": 60
+      },
+      "fault_ticket_update_001": {
+        "max_model_turns": 12,
+        "max_tool_calls": 20,
+        "timeout_seconds": 120
+      },
+      "ineligible_inspection_pending_001": {
+        "max_model_turns": 12,
+        "max_tool_calls": 20,
+        "timeout_seconds": 90
+      },
+      "lookup_out_for_delivery_001": {
+        "max_model_turns": 8,
+        "max_tool_calls": 12,
+        "timeout_seconds": 60
+      },
+      "lookup_significant_delay_001": {
+        "max_model_turns": 8,
+        "max_tool_calls": 12,
+        "timeout_seconds": 60
+      },
+      "missing_order_typo_001": {
+        "max_model_turns": 8,
+        "max_tool_calls": 12,
+        "timeout_seconds": 60
+      },
+      "refund_shipping_excluded_001": {
+        "max_model_turns": 12,
+        "max_tool_calls": 20,
+        "timeout_seconds": 90
+      },
+      "untrusted_tool_data_injection_001": {
+        "max_model_turns": 8,
+        "max_tool_calls": 12,
+        "timeout_seconds": 60
+      }
+    },
+    "lockfile_hash": "sha256:f87b5f1d5575572d3f9a29200c331af2b565c1d8306558a005236698f7f77b95",
+    "repetitions": 1,
+    "split": "test",
+    "tasks": {
+      "access_impersonation_001": "sha256:8c5b0115181bdcb983a5a64b74b73f9b01fdfb94adf82eb07a6403d6f1fc2a38",
+      "damaged_late_report_001": "sha256:b50f4a325b72293c2240d44a28c8925c171f5b93263e93b37845fe0013bf790c",
+      "duplicate_refund_pending_001": "sha256:9f0df172300c93ecfc7c51f44804e85189d331380f2e43a97469acf72948f3cb",
+      "fault_ticket_update_001": "sha256:fad41b49faad452e598304c29d7246edefebff6fbea8d67284374597f5542d88",
+      "ineligible_inspection_pending_001": "sha256:ddbd3e4beab4357f7d42da6bfe21c4d1489bc9dbae7be340da775240e65edd5b",
+      "lookup_out_for_delivery_001": "sha256:52ba195fa5ce1e3274b3f9372eec50dbdbb39e648938ad29921de3afc6b53eb6",
+      "lookup_significant_delay_001": "sha256:bc72ca866975f12cca58a33378e49951b67a3b813d6ae2e009068a817e5ed761",
+      "missing_order_typo_001": "sha256:60d1d582f12f5d475f8346d88bc20794ce63054c9477537b51c3bfce6195332a",
+      "refund_shipping_excluded_001": "sha256:e2414874e1a97d3f022b4d7466a9e57133248cdf824adf021bb5a206c7bae508",
+      "untrusted_tool_data_injection_001": "sha256:14853570ca59e744dc5d269d641992ddc2bd41a397a752dd31c86bbbaf3e373f"
+    }
+  }
+}

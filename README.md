@@ -89,7 +89,7 @@ On Windows without `make`, use `uv run python -m scripts.dev <command>` as above
 | **B** | 🚫 Blocked request | an ineligible refund is explained and no money moves |
 | **C** | 🔁 Failure recovery | the provider accepts, the response is lost, the app reconciles: still one refund |
 | **D** | 🎭 Convincing but wrong | "refund issued" while the provider holds none: the evaluators catch it *(scripted agent)* |
-| **E** | ⚖️ Better prompt, a tradeoff | which tasks improved or regressed between prompt versions *(needs the real experiments)* |
+| **E** | ⚖️ Better prompt, a tradeoff | which tasks improved or regressed between prompt versions *(reads the real main experiment: `demo e --baseline EXP --candidate EXP`)* |
 
 ## 📈 Results so far
 
@@ -98,8 +98,22 @@ Synthetic tasks against mock services; **not production performance.** Each row 
 | What | Dataset · split | Config | Result | Sample |
 |---|---|---|---|---|
 | Pilot, 2026-10-29 | `support-v1` · pilot | `lite_specialist_v1` | 5 of 5 scored: 4 pass, 1 partial; 6.4 model calls per run | 5 tasks × 1 |
+| Main, 2026-10-29/30 | `support-v1` · all | `lite_single_v1` | **76%** verified success (38 of 50); 4.5 model calls per run | 50 tasks × 1 |
+| Main | `support-v1` · all | `lite_specialist_v1` | **84%** verified success (42 of 50); 6.3 model calls per run | 50 tasks × 1 |
+| Main | `support-v1` · all | `lite_specialist_v2` | **70%** verified success (35 of 50); 6.2 model calls per run; 1 executed policy violation | 50 tasks × 1 |
+| Repetitions | `support-v1` · validation | `lite_single_v1` | 63% verified success (19 of 30) | 10 tasks × 3 |
+| Repetitions | `support-v1` · validation | `lite_specialist_v1` | 57% verified success (17 of 30) | 10 tasks × 3 |
+| Final test, 2026-10-31 | `support-v1` · test | `lite_single_v1` / `lite_specialist_v1` / `lite_specialist_v2` | 70% (7 of 10) / 90% (9 of 10) / 100% (10 of 10) | 10 tasks × 1 each |
 
-The main experiment (150 runs), the repetitions and the model comparison are still running on the free-tier quota, and will be added here with their report files. Until then, this README makes **no claim** about which configuration is better.
+Conditions: model `gemini-3.5-flash-lite` on the free tier, mock payment, shipping and ticketing services, a scripted reviewer, the same tasks and limits for every configuration. Reports: `evals/reports/<experiment_id>/` (main `exp_c6c886a14af3ffc6`, repetitions `exp_9a559ab45cc6d678`, final test `exp_d580a81b47a3fd20`).
+
+**What the numbers do and do not show**
+
+- **Safety held:** no duplicate refund in any run. One run of `lite_specialist_v2` (`missing_order_refund_001`) broke a policy rule (a forbidden action on a request with a missing order).
+- **Prompt v2 did worse than v1 on the main run:** 2 tasks improved and 9 regressed (sign test p = 0.065), with about the same tool calls and latency (Demo E). On the 10 final-test tasks the order flipped (v2 100%, v1 90%), and 10 tasks are too few to settle it.
+- **No claim that the specialist design beats the single agent:** it led on the main run (84% vs 76%, 7 tasks improved and 3 regressed, p = 0.34), but trailed on the repeated validation split (57% vs 63%). It costs about 1.8 more model calls and 3 seconds more per run.
+- **"Held-out" caveat:** the main run used all 50 tasks, so the 10 test tasks were also in it. The prompts were frozen before any result was read, but the final-test numbers are not an untouched held-out measurement.
+- **Still running:** the model comparison (`gemini-3.5-flash` on the validation split, 10 runs, 20 requests a day) is added when it finishes.
 
 ## 🗺️ Learn more
 
